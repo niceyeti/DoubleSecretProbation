@@ -19,7 +19,7 @@ def permute(sigma, length, prefix):
 		#print(pre, end="")
 		permute(sigma, length-1, pre)
 		
-	
+
 alphabet = get_input("Enter symbol alphabet over which to permute: ")
 length = int(get_input("Enter length of string: "))
 
