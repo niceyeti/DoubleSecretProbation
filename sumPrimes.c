@@ -13,17 +13,18 @@ int isPrime(unsigned int n)
 		return TRUE;
 	}
 	
-	if(n < 2 || n ^ 0x1){
+	if(n < 2 || (!(n & 0x1))){
 		return FALSE;
 	}
 	
-	for(unsigned int i = 3; i < sqrt(n); i++){
+	for(unsigned int i = 3; i < ((int)sqrt(n)+1); i+=1){
 		if((n % i) == 0){
-			return TRUE;
-		}		
+			return FALSE;
+		}
 	}
 	
-	return FALSE;
+	printf("primo: %d\n",n);
+	return TRUE;
 }
 
 unsigned int sumPrimes(unsigned int n)
@@ -34,6 +35,7 @@ unsigned int sumPrimes(unsigned int n)
 	}
 
 	if(isPrime(n)){
+		printf("prima: %d\n",n);
 		return n + sumPrimes(n-2);
 	}
 
@@ -48,7 +50,7 @@ int main(int argc, char** argv)
 	
 	while(1){
 		printf("\nEnter a number: ");
-		scanf("%u", n);
+		scanf("%u", &n);
 		printf("Number: %u\n",n);
 		sum = sumPrimes(n);
 		printf("\nSum is: %u", sum);
