@@ -130,13 +130,22 @@ def SoftMaxTraining(trainingData):
 	#z = numpy.zeros((ydim, 1))
 	
 	iterations = 0
-	maxEpochs= 10
+	maxEpochs= 50
 	print("Training...")
 	n = len(trainingData)
-	eta = 0.01
+	eta = 0.1
 	avgLosses = []
 	
 	while iterations < maxEpochs:
+		if iterations > 2:
+			eta = 0.01
+		if iterations > 8:
+			eta = 0.001
+		if iterations > 15:
+			eta = 0.0001
+		if iterations > 20:
+			eta = 0.00001
+	
 		ncorrect = 0
 		losses = []
 		for i in range(n):
@@ -147,10 +156,10 @@ def SoftMaxTraining(trainingData):
 			#print("Zdim: "+str(z.shape))
 			y_hat = _softmax(z)
 			#J = _jacobian(x, y, y_hat) #get the Jacobian of partial derivatives wrt
-			#print(str(y_hat.shape)+str(y_hat))
+			#print(str(y_hat.shape)+"<y_hat    y:"+str(y.shape))
 			#exit()
-			#loss = y_hat[0,np.argmax(y)] * 
-			#losses.append( np.dot(y_hat, np.log(y).T)[0] )
+			loss = -np.log(y_hat[np.argmax(y),0])
+			losses.append( loss )
 			dW = eta * np.outer(y - y_hat , x)
 			W += dW
 			#Training tracking
@@ -160,12 +169,12 @@ def SoftMaxTraining(trainingData):
 		avgLosses.append(sum(losses) / float(n))
 		iterations += 1
 		accuracy = float(ncorrect) / float(n)
-		print("Accuracy: %f" % accuracy)
+		print("Accuracy, iteration %d: %f" % (iterations,accuracy))
 
-	#print(str(avgLosses))
-	#xs = [i for i in range(len(avgLosses))]
-	#plt.plot(xs, avgLosses)
-	#plt.show()
+	print(str(avgLosses))
+	xs = [i for i in range(len(avgLosses))]
+	plt.plot(xs, avgLosses)
+	plt.show()
 		
 		
 def SklearnMultinomialRegression(training, classDict):
