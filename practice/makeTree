@@ -1,0 +1,1 @@
+ g++ Node.cpp Tree.cpp --std=c++11 -o tree
