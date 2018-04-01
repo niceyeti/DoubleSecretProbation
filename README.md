@@ -1,1 +1,3 @@
-A mix of top secret files and hello-worlding. Or just hello-worlding. If that's what they want you to think...
+This repo is my shop bench: full of junk, practice code, and half developed libraries that may or may not transition into their own repos.
+
+But mostly junk and practice.
