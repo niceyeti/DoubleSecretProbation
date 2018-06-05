@@ -164,11 +164,11 @@ def SoftMaxTraining(trainingData):
 	maxEpochs= 50
 	print("Training...")
 	n = len(trainingData)
-	eta = dtype(0.1)
-	etaDecay = dtype(0.2)
+	eta = dtype(0.01)
+	etaDecay = dtype(0.5)
 	useWeightDecay = False
 	weightDecay = dtype(0.999999)
-	momentum = 0.2
+	momentum = 0.01
 	useMomentum = True
 	avgLosses = []
 	
