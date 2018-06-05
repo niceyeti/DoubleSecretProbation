@@ -10,3 +10,7 @@ practice/hanoi
 practice/list
 practice/tree
 practice/tree2
+
+mldata/mnist_train.csv
+mldata/mnist_test.csv
+
