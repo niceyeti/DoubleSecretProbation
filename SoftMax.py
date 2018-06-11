@@ -201,7 +201,7 @@ def SoftMaxTraining(trainingData):
 			losses.append( loss )
 
 			#get the weight update
-			dW = np.outer(y - y_hat , x)
+			dW = np.outer(y - y_hat, x)
 			if useMomentum:
 				W += eta * dW + momentum * dW_prev
 				dW_prev = dW

@@ -159,8 +159,7 @@ class BPTT_Network(object):
 		#This is a gotcha, and is not well-defined yet. How is the initial state characterized, as an input? It acts as both input and parameter (to be learnt).
 		#Clever solutions might include backpropagating one step prior to every training sequence to an initial input of uniform inputs (x = all ones), or similar hacks.
 		#setup the initial state; note that this is learnt, and retained across predictions/training epochs, since it signifies the initial distribution before any input is received
-		s = np.ones(shape=(nHiddenUnits, nHiddenUnits), dtype=dtype)
-		self._Ss.append(s)
+		self._initialState = np.zeros(shape=(nHiddenUnits, 1), dtype=dtype)
 
 	def InitializeWeights(self, wShape, vShape, uShape, method="random"):
 		if method == "random":
@@ -244,6 +243,34 @@ class BPTT_Network(object):
 		self._Ys.append(y)
 
 	"""
+	Forward step of bptt entails setting the inputs of the entire network, and storing hidden states and outputs.
+
+	@xs: A list of numpy vectors representing network inputs.
+
+	Post-condition: self._Xs contains the entire sequence of inputs in @xs, 
+	"""
+	def ForwardPropagate(self, xs):
+		self._Xs = []
+		self._Ss = [self._initialState]
+
+		for x in xs:
+			#get the (|s| x 1) state vector s
+			s = self._V * x + self._U * self._Ss[-1] + self._inputBiases
+			#drive signal through the non-linear activation function
+			s = self._hiddenFunction(s)
+			#save this hidden state
+			self._Ss.append(s)
+			#get the (|y| x 1) output vector
+			y = self._W * s.T + self._outputBiases
+			#drive the net signal through the non-linear activation function
+			y = self._outputFunction(y)
+			#save the output state
+			self._Ys.append(y)
+			
+
+
+
+	"""
 	@x: A vector of shape (1,|x|)
 	@y: An output vector of shape (1,|y|)
 	def Backpropagate(self, x, y):
@@ -278,15 +305,32 @@ class BPTT_Network(object):
 			training example is a sequence of (x,y) pairs.
 	"""
 	def Train(dataset):
-		windowSize = 10000 #the number of time steps to backpropagate errors
+		bpStepLimit = 10000 #the number of time steps to backpropagate errors
+		
 
 		for sequence in dataset:
 			self._reset()
+			t_end = len(sequence)
+			xs = [xyPair[0] for xyPair in sequence]
+			#forward propagate entire sequence, storing info needed for weight updates: outputs and states at each time step t
+			self.ForwardPropagate(xs)
 
-			#forward propagate entire sequence, storing info needed for weight updates
-			for i in range(len(sequence)):
-				self._reset()
-				for j in range(i):
+			outputDeltas
+
+			for t in reversed(range(t_end)):
+				#initialize the weight-change matrices in which to accumulate weight changes, since weights are tied in vanilla rnn's
+				dCdW = np.zeros(shape=self._W.shape, dtype=dtype)
+				dCdV = np.zeros(shape=self._V.shape, dtype=dtype)
+				dCdU = np.zeros(shape=self._U.shape, dtype=dtype)
+
+				#calculate output error at step t, from which to backprop
+				y_target = sequence[t][1]
+				outputError = y_target - self._Ys[t] #output error per softmax
+				dCdW += np.outer(outputError, self._Ss[t].T) #output deltas at timestep t, per softmax
+				delta = outputError
+
+				#calculate the hidden layer deltas, regressing backward from timestep t, up to @bpStepLimit steps
+				for i in reversed(range(max(0,t-bpStepLimit), t)):
 					
 
 
@@ -334,6 +378,33 @@ Back_Propagation_Through_Time(a, y)   // a[t] is the input at time t. y[t] is th
             Sum the weight changes in the k instances of f together.
             Update all the weights in f and g.
             x = f(x, a[t]);           // compute the context for the next time-step
+
+http://www.wildml.com/2015/10/recurrent-neural-networks-tutorial-part-3-backpropagation-through-time-and-vanishing-gradients/
+
+def bptt(self, x, y):
+    T = len(y)
+    # Perform forward propagation
+    o, s = self.forward_propagation(x)
+    # We accumulate the gradients in these variables
+    dLdU = np.zeros(self.U.shape)
+    dLdV = np.zeros(self.V.shape)
+    dLdW = np.zeros(self.W.shape)
+    delta_o = o
+    delta_o[np.arange(len(y)), y] -= 1.
+    # For each output backwards...
+    for t in np.arange(T)[::-1]:     #The slice operator [::-1] reverses the ndarray
+        dLdV += np.outer(delta_o[t], s[t].T)
+        # Initial delta calculation: dL/dz
+        delta_t = self.V.T.dot(delta_o[t]) * (1 - (s[t] ** 2))
+        # Backpropagation through time (for at most self.bptt_truncate steps)
+        for bptt_step in np.arange(max(0, t-self.bptt_truncate), t+1)[::-1]:
+            # print "Backpropagation step t=%d bptt step=%d " % (t, bptt_step)
+            # Add to gradients at each previous step
+            dLdW += np.outer(delta_t, s[bptt_step-1])              
+            dLdU[:,x[bptt_step]] += delta_t
+            # Update delta for next step dL/dz at t-1
+            delta_t = self.W.T.dot(delta_t) * (1 - s[bptt_step-1] ** 2)
+    return [dLdU, dLdV, dLdW]
 """
 
 def main():
