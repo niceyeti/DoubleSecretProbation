@@ -23,11 +23,64 @@ Returns: A vector y_hat, produced by softmax.
 """
 
 import numpy as np
-
+import string
+import re
 
 dtype=np.float64
 
+"""
+Returns all words in some file, with all non-alphabetic characters removed, and lowercased.
+"""
+def GetWordSequence(fpath):
+	words = []
+	with open(fpath,"r") as ifile:
+		#read entire character sequence of file
+		novel = ifile.read().replace("\r"," ").replace("\t"," ").replace("\n"," ")
+		novel = re.sub(r"[^a-zA-Z]",' ',novel).lower()
+		words = novel.split()
+		#print(novel)
 
+	return words
+
+"""
+Returns a list of lists of (x,y) vector pairs describing character data. 
+The data consists of character sequences derived from the novel Treasure Island.
+Training sequences consist of the words of this novel, where the entire novel is lowercased,
+punctuation is dropped, and word are tokenized via split(). Pretty simple. It will be neat to see 
+what kind of words such a neural net could generate.
+
+Each sequence consists of a list of numpy one-hot encoded vector pairs.
+
+"""
+def BuildSequenceDataset():
+	dataset = []
+
+	words = GetWordSequence("./mldata/treasureIsland.txt")
+	charMap = dict()
+	i = 0
+	for c in string.ascii_lowercase:
+		charMap[c] = i
+		i+=1
+
+	#add beginning and ending special characters to delimit beginning and end of sequences
+	charMap['^'] = i
+	charMap['$'] = i + 1
+	print("words: {}".format(len(words)))
+	numClasses = len(charMap.keys())
+	startVector = np.zeros(shape=(1,numClasses),dtype=np.int32)
+	startVector[0,charMap['^']] = 1
+	endVector = np.zeros(shape=(1,numClasses),dtype=np.int32)
+	endVector[0,charMap['$']] = 1
+	for word in words[0:10000]: #word sequence is truncated, since full text might be explosive
+		sequence = [startVector]
+		for c in word:
+			vec = np.zeros(shape=(1,numClasses),dtype=np.int32)
+			vec[0,charMap[c]] = 1
+			sequence.append(vec)
+		sequence.append(endVector)
+		dataset.append(sequence)
+
+	return dataset, charMap
 
 #data generation helpers
 def convertTextToDataset(textPath):
@@ -60,13 +113,15 @@ class Neuron(object):
 	#loss functions. These take in two vectors, y' and y*, and produce a scalar output.
 	@staticmethod
 	def SSELoss(y_prime, y_star):
+		pass
 
 	@staticmethod
 	def SSELossDerivative(y_prime, y_star):
+		pass
 
 	@staticmethod
 	def CrossEntropyLoss():
-
+		pass
 
 class BPTT_Network(object):
 	"""
@@ -80,7 +135,7 @@ class BPTT_Network(object):
 
 	"""
 	#def __init__(self, eta=0.01, wShape, vShape, uShape, nOutputs, lossFunction="SSE", outputActivation="SOFTMAX", hiddenActivation="TANH"):
-	def __init__(self, eta=0.01, nInputs, nHiddenUnits, nOutputs, lossFunction="SSE", outputActivation="SOFTMAX", hiddenActivation="TANH"):
+	def __init__(self, eta, nInputs, nHiddenUnits, nOutputs, lossFunction="SSE", outputActivation="SOFTMAX", hiddenActivation="TANH"):
 		self._eta = eta
 		self.SetLossFunction(lossFunction)
 		self.SetOutputActivation(outputActivation)
@@ -104,7 +159,7 @@ class BPTT_Network(object):
 		#This is a gotcha, and is not well-defined yet. How is the initial state characterized, as an input? It acts as both input and parameter (to be learnt).
 		#Clever solutions might include backpropagating one step prior to every training sequence to an initial input of uniform inputs (x = all ones), or similar hacks.
 		#setup the initial state; note that this is learnt, and retained across predictions/training epochs, since it signifies the initial distribution before any input is received
-		s = np.ones(shape=(nHiddenUnits, nHiddenUnits)  dtype=dtype)
+		s = np.ones(shape=(nHiddenUnits, nHiddenUnits), dtype=dtype)
 		self._Ss.append(s)
 
 	def InitializeWeights(self, wShape, vShape, uShape, method="random"):
@@ -229,6 +284,11 @@ class BPTT_Network(object):
 			self._reset()
 
 			#forward propagate entire sequence, storing info needed for weight updates
+			for i in range(len(sequence)):
+				self._reset()
+				for j in range(i):
+					
+
 
 
 
@@ -258,6 +318,7 @@ class BPTT_Network(object):
 				outputDeltas = e
 				self._outputDeltas.append(outputDeltas)
 
+
 """
 From wikipedia. 'g' refers to the final output layer to some y[t], f to each hidden state.
 
@@ -275,9 +336,15 @@ Back_Propagation_Through_Time(a, y)   // a[t] is the input at time t. y[t] is th
             x = f(x, a[t]);           // compute the context for the next time-step
 """
 
+def main():
+	dataset, encodingMap = BuildSequenceDataset()
+	print(str(encodingMap))
+	print(str(dataset[0]))
 
 
 
+if __name__ == "__main__":
+	main()
 
 
 
