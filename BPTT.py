@@ -28,50 +28,44 @@ import numpy as np
 dtype=np.float64
 
 
-def _softmax(z):
-	e_z = np.exp(z - np.max(z))
-	return e_z / np.sum(e_z)
-
-
 
 #data generation helpers
 def convertTextToDataset(textPath):
 	pass
 
-
-"""
+#Static helper class. All these functions are vector-valued.
 class Neuron(object):
 	@staticmethod
-	def Tanh():
+	def Tanh(z):
+		return np.tanh(z)
 
 	@staticmethod
-	def TanhPrime():
-
-
-	@staticmethod
-	def SoftMax():
+	def TanhPrime(z):
+		return 1 - (Neuron.Tanh(z) ** 2)
 
 	@staticmethod
-	def Sigmoid():
+	def SoftMax(z):
+		e_z = np.exp(z - np.max(z))
+		return e_z / np.sum(e_z)
+
+	@staticmethod
+	def Sigmoid(z):
+		return 1 / (1 + np.exp(-z))
 		
 	@staticmethod
-	def SigmoidPrime():
-
+	def SigmoidPrime(z):
+		sig = Neuron.Sigmoid(z)
+		return sig * (1 - sig)
 
 	#loss functions. These take in two vectors, y' and y*, and produce a scalar output.
 	@staticmethod
 	def SSELoss(y_prime, y_star):
 
 	@staticmethod
-	def SEELossDerivative(y_prime, y_star):
-
-
-	@staticmethod
-	def SoftMaxLoss():
+	def SSELossDerivative(y_prime, y_star):
 
 	@staticmethod
 	def CrossEntropyLoss():
-"""
 
 
 class BPTT_Network(object):
@@ -141,6 +135,10 @@ class BPTT_Network(object):
 			self._lossFunction = Neuron.CrossEntropyLoss
 			self._lossPrime = Neuron.CrossEntropyLossDerivative
 
+	"""
+	Apparently its okay to drive an activation function, then softmax, thereby separating softmax from tanh/sigmoid one term,
+	which is just weird. Sticking with a single output activation for now, where softmax can only be e^(x*w) / sum(e^x*w_i, i)
+	"""
 	def SetOutputFunction(self, outputFunction):
 		if outputFunction == "TANH":
 			self._outputFunction = Neuron.Tanh
@@ -151,6 +149,9 @@ class BPTT_Network(object):
 		elif outputFunction == "SOFTMAX":
 			self._outputFunction = Neuron.SoftMax
 			self._outputPrime = Neuron.SoftMaxPrime
+		elif outputFunction == "LINEAR":
+			self._outputFunction = Neuron.Linear
+			self._outputPrime = Neuron.LinearPrime
 
 	def SetHiddenFunction(self, hiddenFunction):
 		if hiddenFunction == "TANH":
@@ -159,9 +160,9 @@ class BPTT_Network(object):
 		elif hiddenFunction == "SIGMOID":
 			self._hiddenFunction = Neuron.Sigmoid
 			self._hiddenPrime = Neuron.SigmoidPrime
-		elif hiddenFunction == "SOFTMAX":
-			self._hiddenFunction = Neuron.SoftMax
-			self._hiddenPrime = Neuron.SoftMaxPrime
+		elif hiddenFunction == "LINEAR":
+			self._hiddenFunction = Neuron.Linear
+			self._hiddenPrime = Neuron.LinearPrime
 
 	"""
 	Feed forward action of simple recurrent network. This function is stateful, before and after; after
@@ -176,10 +177,15 @@ class BPTT_Network(object):
 		self._Xs.append(x)
 		#get the (|s| x 1) state vector s
 		s = self._V * x + self._U * self._Ss[-1] + self._inputBiases
+		#drive signal through the non-linear activation function
+		s = self._hiddenFunction(s)
 		#save this hidden state
 		self._Ss.append(s)
 		#get the (|y| x 1) output vector
 		y = self._W * s.T + self._outputBiases
+		#drive the net signal through the non-linear activation function
+		y = self._outputFunction(y)
+		#save the output state
 		self._Ys.append(y)
 
 	"""
@@ -201,9 +207,13 @@ class BPTT_Network(object):
 		self._outputDeltas = []
 		self._hiddenDeltas = []
 
+	"""
+	Given @y_target the target output vector, and @y_predicted the predicted output vector,
+	returns the error vector. @y_target is y*, @y_predicted is y_hat.
+	"""
 	def GetOuptutError(self, y_target, y_predicted):
-		#Todo: convert
-		return y_target - y_predicted #SSE error
+		#TODO: Map this to a specific loss function
+		return y_target - y_predicted #SSE and softmax error
 
 	"""
 	This function is not intended to be clean or compact until the network has been proven. Even then I prefer
@@ -213,33 +223,57 @@ class BPTT_Network(object):
 			training example is a sequence of (x,y) pairs.
 	"""
 	def Train(dataset):
+		windowSize = 10000 #the number of time steps to backpropagate errors
+
 		for sequence in dataset:
 			self._reset()
+
+			#forward propagate entire sequence, storing info needed for weight updates
+
+
+
 			for i, xyPair in enumerate(sequence):
 				x = xyPair[0]
 				y = xyPair[1]
-				self.Predict(x)
-				#network information flow and output stored; now backpropagate
-				e = self.GetOutputError(y,self._Ys[-1])
-				#get output layer deltas
+				#Run feed-forward step
+				#self.Predict(x)
+				self._Xs.append(x)
+				#get the (|s| x 1) state vector s
+				s = self._V * x + self._U * self._Ss[-1] + self._inputBiases
+				#drive signal through the non-linear activation function
+				s = self._hiddenFunction(s)
+				#save this hidden state
+				self._Ss.append(s)
+				#get the (|y| x 1) output vector
+				y_hat = self._W * s.T + self._outputBiases
+				#drive the net signal through the non-linear activation function
+				y_hat = self._outputFunction(y_hat)
+				#save the output state
+				self._Ys.append(y_hat)
+			
+
+				#Network information flow and output stored; now backpropagate error deltas through previous timesteps
+				e = y - y_hat
+				#Get final output layer deltas. #TODO: This could also involve the derivative of the activation, omitted here (technically it is *1.0) because I'm hard-coding for basic softmax with linear input.
 				outputDeltas = e
 				self._outputDeltas.append(outputDeltas)
 
+"""
+From wikipedia. 'g' refers to the final output layer to some y[t], f to each hidden state.
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
+Back_Propagation_Through_Time(a, y)   // a[t] is the input at time t. y[t] is the output
+    Unfold the network to contain k instances of f
+    do until stopping criteria is met:
+        x = the zero-magnitude vector;// x is the current context
+        for t from 0 to n - k         // t is time. n is the length of the training sequence
+            Set the network inputs to x, a[t], a[t+1], ..., a[t+k-1]
+            p = forward-propagate the inputs over the whole unfolded network
+            e = y[t+k] - p;           // error = target - prediction
+            Back-propagate the error, e, back across the whole unfolded network
+            Sum the weight changes in the k instances of f together.
+            Update all the weights in f and g.
+            x = f(x, a[t]);           // compute the context for the next time-step
+"""
 
 
 
