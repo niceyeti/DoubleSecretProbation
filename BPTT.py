@@ -255,13 +255,13 @@ class BPTT_Network(object):
 
 		for x in xs:
 			#get the (|s| x 1) state vector s
-			s = self._V * x + self._U * self._Ss[-1] + self._inputBiases
+			s = self._V.dot(x) + self._U.dot(self._Ss[-1]) + self._inputBiases
 			#drive signal through the non-linear activation function
 			s = self._hiddenFunction(s)
 			#save this hidden state
 			self._Ss.append(s)
 			#get the (|y| x 1) output vector
-			y = self._W * s.T + self._outputBiases
+			y = self._W.dot(s.T) + self._outputBiases
 			#drive the net signal through the non-linear activation function
 			y = self._outputFunction(y)
 			#save the output state
@@ -308,14 +308,39 @@ class BPTT_Network(object):
 		bpStepLimit = 10000 #the number of time steps to backpropagate errors
 		
 
+def bptt(self, x, y):
+    T = len(y)
+    # Perform forward propagation
+    o, s = self.forward_propagation(x)
+    # We accumulate the gradients in these variables
+    dLdU = np.zeros(self.U.shape)
+    dLdV = np.zeros(self.V.shape)
+    dLdW = np.zeros(self.W.shape)
+    delta_o = o
+    delta_o[np.arange(len(y)), y] -= 1.
+    # For each output backwards...
+    for t in np.arange(T)[::-1]:     #The slice operator [::-1] reverses the ndarray
+        dLdV += np.outer(delta_o[t], s[t].T)
+        # Initial delta calculation: dL/dz
+        delta_t = self.V.T.dot(delta_o[t]) * (1 - (s[t] ** 2))
+        # Backpropagation through time (for at most self.bptt_truncate steps)
+        for bptt_step in np.arange(max(0, t-self.bptt_truncate), t+1)[::-1]:
+            # print "Backpropagation step t=%d bptt step=%d " % (t, bptt_step)
+            # Add to gradients at each previous step
+            dLdW += np.outer(delta_t, s[bptt_step-1])              
+            dLdU[:,x[bptt_step]] += delta_t
+            # Update delta for next step dL/dz at t-1
+            delta_t = self.W.T.dot(delta_t) * (1 - s[bptt_step-1] ** 2)
+    return [dLdU, dLdV, dLdW]
+
+
 		for sequence in dataset:
 			self._reset()
 			t_end = len(sequence)
 			xs = [xyPair[0] for xyPair in sequence]
+			ys = [xyPair[1] for xyPair in sequence]
 			#forward propagate entire sequence, storing info needed for weight updates: outputs and states at each time step t
 			self.ForwardPropagate(xs)
-
-			outputDeltas
 
 			for t in reversed(range(t_end)):
 				#initialize the weight-change matrices in which to accumulate weight changes, since weights are tied in vanilla rnn's
@@ -325,14 +350,22 @@ class BPTT_Network(object):
 
 				#calculate output error at step t, from which to backprop
 				y_target = sequence[t][1]
-				outputError = y_target - self._Ys[t] #output error per softmax
-				dCdW += np.outer(outputError, self._Ss[t].T) #output deltas at timestep t, per softmax
-				delta = outputError
+				e_output = y_target - self._Ys[t] #output error per softmax: |y| x 1 vector
+				#W weight matrix can be updated immediately, from the output error
+				dCdW = np.outer(e_output, self._Ss[t].T)
+				#get the initial deltas at time t, which depend on W
+				deltas = self._hiddenPrime(self._Ss[t]) * e_output.T.dot(self._W)
 
 				#calculate the hidden layer deltas, regressing backward from timestep t, up to @bpStepLimit steps
 				for i in reversed(range(max(0,t-bpStepLimit), t)):
-					
+					dCdU += self._U * np.outer(self._Ss[i], deltas)
+					dCdV += self._V * np.outer(self._Xs[i], deltas)
+					deltas = self._hiddenPrime(self._Ss[i]) * self._U.dot(deltas)
 
+				#apply the cumulative weight changes
+				self._W += self._eta * dCdW
+				self._U += self._eta * dCdU
+				self._V += self._eta * dCdV
 
 
 
