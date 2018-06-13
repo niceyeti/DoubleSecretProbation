@@ -49,7 +49,7 @@ Training sequences consist of the words of this novel, where the entire novel is
 punctuation is dropped, and word are tokenized via split(). Pretty simple. It will be neat to see 
 what kind of words such a neural net could generate.
 
-Each sequence consists of a list of numpy one-hot encoded vector pairs.
+Each sequence consists of a list of numpy one-hot encoded column-vector (shape=(k,1)) pairs.
 
 """
 def BuildSequenceDataset():
@@ -67,17 +67,22 @@ def BuildSequenceDataset():
 	charMap['$'] = i + 1
 	print("words: {}".format(len(words)))
 	numClasses = len(charMap.keys())
-	startVector = np.zeros(shape=(1,numClasses),dtype=np.int32)
-	startVector[0,charMap['^']] = 1
-	endVector = np.zeros(shape=(1,numClasses),dtype=np.int32)
-	endVector[0,charMap['$']] = 1
+	startVector = np.zeros(shape=(numClasses,1), dtype=np.int32)
+	startVector[charMap['^'],0] = 1
+	endVector = np.zeros(shape=(numClasses,1), dtype=np.int32)
+	endVector[charMap['$'],0] = 1
 	for word in words[0:10000]: #word sequence is truncated, since full text might be explosive
 		sequence = [startVector]
+		#get the raw sequence of one-hot vectors representing characters
 		for c in word:
-			vec = np.zeros(shape=(1,numClasses),dtype=np.int32)
-			vec[0,charMap[c]] = 1
+			vec = np.zeros(shape=(numClasses,1),dtype=np.int32)
+			vec[charMap[c],0] = 1
 			sequence.append(vec)
 		sequence.append(endVector)
+		#since our input classes are same as outputs, just pair them off-by-one, such that the network learns bigram like distributions: given x-input char, y* is next char
+		xs = [vec for vec in sequence[:-1]]
+		ys = [vec for vec in sequence[1:]]
+		sequence = list(zip(xs,ys))
 		dataset.append(sequence)
 
 	return dataset, charMap
@@ -96,10 +101,15 @@ class Neuron(object):
 	def TanhPrime(z):
 		return 1 - (Neuron.Tanh(z) ** 2)
 
+	#@z: A vector. Softmax is a vector valued function.
 	@staticmethod
 	def SoftMax(z):
 		e_z = np.exp(z - np.max(z))
 		return e_z / np.sum(e_z)
+
+	@staticmethod
+	def SoftMaxPrime(z):
+		return 1.0
 
 	@staticmethod
 	def Sigmoid(z):
@@ -138,9 +148,9 @@ class BPTT_Network(object):
 	def __init__(self, eta, nInputs, nHiddenUnits, nOutputs, lossFunction="SSE", outputActivation="SOFTMAX", hiddenActivation="TANH"):
 		self._eta = eta
 		self.SetLossFunction(lossFunction)
-		self.SetOutputActivation(outputActivation)
-		self.SetHiddenActivation(hiddenActivation)
-	
+		self.SetOutputFunction(outputActivation)
+		self.SetHiddenFunction(hiddenActivation)
+
 		self.NumInputs = nInputs
 		self.NumHiddenUnits = nHiddenUnits
 		self.NumOutputs = nOutputs
@@ -153,13 +163,17 @@ class BPTT_Network(object):
 		vShape = (nHiddenUnits, nInputs)
 		uShape = (nHiddenUnits, nHiddenUnits)
 		
+		self._numInputs = nInputs
+		self._numHiddenUnits = nHiddenUnits
+		self._numOutputs = nOutputs
+
 		#setup the parameters of a traditional rnn
 		self.InitializeWeights(wShape, vShape, uShape, "random")
 
 		#This is a gotcha, and is not well-defined yet. How is the initial state characterized, as an input? It acts as both input and parameter (to be learnt).
 		#Clever solutions might include backpropagating one step prior to every training sequence to an initial input of uniform inputs (x = all ones), or similar hacks.
 		#setup the initial state; note that this is learnt, and retained across predictions/training epochs, since it signifies the initial distribution before any input is received
-		self._initialState = np.zeros(shape=(nHiddenUnits, 1), dtype=dtype)
+		self._initialState = np.zeros(shape=(nHiddenUnits,1), dtype=dtype)
 
 	def InitializeWeights(self, wShape, vShape, uShape, method="random"):
 		if method == "random":
@@ -179,7 +193,7 @@ class BPTT_Network(object):
 		hiddenDim = wShape[1] 
 		#set the biases to vectors of ones
 		self._outputBiases = np.ones(shape=(outputDim,1), dtype=dtype) #output layer biases; there are as many of these as output classes
-		self._inputBiases  = np.ones(shape=(nHiddenUnits,1), dtype=dtype)
+		self._inputBiases  = np.ones(shape=(hiddenDim,1), dtype=dtype)
 
 	def SetLossFunction(self, lossFunction):
 		if lossFunction == "SSE":
@@ -252,38 +266,62 @@ class BPTT_Network(object):
 	def ForwardPropagate(self, xs):
 		self._Xs = []
 		self._Ss = [self._initialState]
+		self._Ys = []
 
 		for x in xs:
-			#get the (|s| x 1) state vector s
-			s = self._V.dot(x) + self._U.dot(self._Ss[-1]) + self._inputBiases
-			#drive signal through the non-linear activation function
-			s = self._hiddenFunction(s)
-			#save this hidden state
-			self._Ss.append(s)
-			#get the (|y| x 1) output vector
-			y = self._W.dot(s.T) + self._outputBiases
-			#drive the net signal through the non-linear activation function
-			y = self._outputFunction(y)
-			#save the output state
-			self._Ys.append(y)
-			
+			"""
+			print("XDIM: {}".format(x.shape))
+			print("VDIM: {}".format(self._V.shape))
+			print("UDIM: {}".format(self._U.shape))
+			print("WDIM: {}".format(self._W.shape))
+			print("SDIM: {}".format(self._Ss[0].shape))
+			print("INPUT BIASES: {}".format(self._inputBiases.shape))
+			"""
+			self._predict(x)
 
+	#Stateful prediction: given current network state, make one output prediction
+	def _predict(self,x):
+		#get the (|s| x 1) state vector s
+		s = self._V.dot(x) + self._U.dot(self._Ss[-1]) + self._inputBiases
+		#drive signal through the non-linear activation function
+		s = self._hiddenFunction(s)
+		#save this hidden state
+		self._Ss.append(s)
+		#get the (|y| x 1) output vector
+		y = self._W.dot(s) + self._outputBiases
+		#drive the net signal through the non-linear activation function
+		y = self._outputFunction(y)
+		#save the output state
+		self._Ys.append(y)
+		#print("YDIM: {}".format(y.shape))
+		self._Xs.append(x)
+		return y
 
+	#Returns column vector with one random bit high.
+	def _getRandomOneHotVector(self,dim):
+		i = np.random.randint(dim)
+		r = np.zeros(shape=(dim,1))
+		r[i,0] = 1.0
+		return r
 
-	"""
-	@x: A vector of shape (1,|x|)
-	@y: An output vector of shape (1,|y|)
-	def Backpropagate(self, x, y):
-		#feed forward pass
-		self.Predict(x)
-	"""
+	#Generates sequences by starting from a random state and making a prediction, then feeding these predictions back as input
+	def Generate(self, reverseEncodingMap):
+		r = self._getRandomOneHotVector(self._numInputs)
+		c = reverseEncodingMap[np.argmax(r)]
+		print(c,end="")
+
+		for i in range(100):
+			r = self._predict(r)
+			c = reverseEncodingMap[np.argmax(r)]
+			print(c,end="")
+
 
 	"""
 	Utility for resetting network to its initial state. It still isn't clear what that initial
 	state of the network should be; its a subtle gotcha missing from most lit.
 	"""
 	def _reset(self):
-		self._Ss = [self._Ss[0]]
+		self._Ss = [self._initialState]
 		self._Xs = []
 		self._Ys = []
 		self._outputDeltas = []
@@ -303,10 +341,6 @@ class BPTT_Network(object):
 
 	@dataset: A list of lists of (x,y) pairs, where both x and y are real-valued vectors. Hence each
 			training example is a sequence of (x,y) pairs.
-	"""
-	def Train(dataset):
-		bpStepLimit = 10000 #the number of time steps to backpropagate errors
-		
 
 def bptt(self, x, y):
     T = len(y)
@@ -332,9 +366,16 @@ def bptt(self, x, y):
             # Update delta for next step dL/dz at t-1
             delta_t = self.W.T.dot(delta_t) * (1 - s[bptt_step-1] ** 2)
     return [dLdU, dLdV, dLdW]
+	"""
+	def Train(self, dataset):
+		bpStepLimit = 2 #the number of time steps to backpropagate errors
+		losses = []
 
-
-		for sequence in dataset:
+		for count, sequence in enumerate(dataset):
+			print("Example count: {}".format(count))
+			if count > 20:
+				avgLoss = sum(losses[count-10:count]) / 20
+				print("AvgLoss: {}".format(avgLoss))
 			self._reset()
 			t_end = len(sequence)
 			xs = [xyPair[0] for xyPair in sequence]
@@ -351,16 +392,19 @@ def bptt(self, x, y):
 				#calculate output error at step t, from which to backprop
 				y_target = sequence[t][1]
 				e_output = y_target - self._Ys[t] #output error per softmax: |y| x 1 vector
+				losses.append(np.absolute(np.sum(e_output)))
 				#W weight matrix can be updated immediately, from the output error
 				dCdW = np.outer(e_output, self._Ss[t].T)
-				#get the initial deltas at time t, which depend on W
-				deltas = self._hiddenPrime(self._Ss[t]) * e_output.T.dot(self._W)
+				#get the initial deltas at time t, which depend on W (instead of U, like the recursive deltas)
+				#print("Eout dim: {}  y_star {} y_hat {}  ss[t] {}".format(e_output.shape, y_target.shape, self._Ys[t].shape, self._Ss[t].shape))
+				deltas = self._hiddenPrime(self._Ss[t]) * self._W.T.dot(e_output)  # |s| x |y| * |y| x 1 = |s| x 1 vector
 
+				#print("Eout dim  {}  Delta dim {}".format(e_output.shape,deltas.shape))
 				#calculate the hidden layer deltas, regressing backward from timestep t, up to @bpStepLimit steps
 				for i in reversed(range(max(0,t-bpStepLimit), t)):
-					dCdU += self._U * np.outer(self._Ss[i], deltas)
-					dCdV += self._V * np.outer(self._Xs[i], deltas)
-					deltas = self._hiddenPrime(self._Ss[i]) * self._U.dot(deltas)
+					dCdV += self._V * np.outer(deltas, self._Xs[i])
+					dCdU += self._U * np.outer(deltas, self._Ss[i])
+					deltas = self._hiddenPrime(self._Ss[i-1]) * self._U.dot(deltas)
 
 				#apply the cumulative weight changes
 				self._W += self._eta * dCdW
@@ -369,6 +413,7 @@ def bptt(self, x, y):
 
 
 
+"""
 			for i, xyPair in enumerate(sequence):
 				x = xyPair[0]
 				y = xyPair[1]
@@ -394,7 +439,7 @@ def bptt(self, x, y):
 				#Get final output layer deltas. #TODO: This could also involve the derivative of the activation, omitted here (technically it is *1.0) because I'm hard-coding for basic softmax with linear input.
 				outputDeltas = e
 				self._outputDeltas.append(outputDeltas)
-
+"""
 
 """
 From wikipedia. 'g' refers to the final output layer to some y[t], f to each hidden state.
@@ -442,9 +487,27 @@ def bptt(self, x, y):
 
 def main():
 	dataset, encodingMap = BuildSequenceDataset()
+	reverseEncoding = dict([(encodingMap[key],key) for key in encodingMap.keys()])
+	"""
+	for sequence in dataset:
+		word = ""
+		for x in sequence:
+			index = np.argmax(x)
+			word += reverseEncoding[index]
+		print(word)
+	"""
 	print(str(encodingMap))
 	print(str(dataset[0]))
+	print("SHAPE: {} {}".format(dataset[0][0][0].shape, dataset[0][0][1].shape))
+	xDim = dataset[0][0][0].shape[0]
+	yDim = dataset[0][0][1].shape[0]
+	eta = 0.001
+	hiddenUnits = 10
 
+	net = BPTT_Network(eta, xDim, hiddenUnits, yDim, lossFunction="SSE", outputActivation="SOFTMAX", hiddenActivation="TANH")
+
+	net.Train(dataset)
+	#net.Generate()
 
 
 if __name__ == "__main__":
