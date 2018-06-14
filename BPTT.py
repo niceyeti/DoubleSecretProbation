@@ -25,6 +25,8 @@ Returns: A vector y_hat, produced by softmax.
 import numpy as np
 import string
 import re
+import sys
+import random
 
 dtype=np.float64
 
@@ -65,13 +67,13 @@ def BuildSequenceDataset():
 	#add beginning and ending special characters to delimit beginning and end of sequences
 	charMap['^'] = i
 	charMap['$'] = i + 1
-	print("words: {}".format(len(words)))
+	print("num classes: {}".format(len(words)))
 	numClasses = len(charMap.keys())
 	startVector = np.zeros(shape=(numClasses,1), dtype=np.int32)
 	startVector[charMap['^'],0] = 1
 	endVector = np.zeros(shape=(numClasses,1), dtype=np.int32)
 	endVector[charMap['$'],0] = 1
-	for word in words[0:10000]: #word sequence is truncated, since full text might be explosive
+	for word in words[10000:20000]: #word sequence is truncated, since full text might be explosive
 		sequence = [startVector]
 		#get the raw sequence of one-hot vectors representing characters
 		for c in word:
@@ -97,9 +99,11 @@ class Neuron(object):
 	def Tanh(z):
 		return np.tanh(z)
 
+	#NOTE: This assumes that z = tanh(x)!! That is, assumes z already represents the output of tanh.
 	@staticmethod
 	def TanhPrime(z):
-		return 1 - (Neuron.Tanh(z) ** 2)
+		return 1 - z ** 2
+		#return 1 - (Neuron.Tanh(z) ** 2)
 
 	#@z: A vector. Softmax is a vector valued function.
 	@staticmethod
@@ -159,9 +163,9 @@ class BPTT_Network(object):
 		#The shapes are meant to be consistent with the following linear equations:
 		#	V*x + U*s[t-1] + b_input = s[t]
 		#	W*s + b_output = y
-		wShape = (nOutputs, nHiddenUnits)   # W is shape (|y| x |s|)
 		vShape = (nHiddenUnits, nInputs)
 		uShape = (nHiddenUnits, nHiddenUnits)
+		wShape = (nOutputs, nHiddenUnits)   # W is shape (|y| x |s|)
 		
 		self._numInputs = nInputs
 		self._numHiddenUnits = nHiddenUnits
@@ -173,7 +177,7 @@ class BPTT_Network(object):
 		#This is a gotcha, and is not well-defined yet. How is the initial state characterized, as an input? It acts as both input and parameter (to be learnt).
 		#Clever solutions might include backpropagating one step prior to every training sequence to an initial input of uniform inputs (x = all ones), or similar hacks.
 		#setup the initial state; note that this is learnt, and retained across predictions/training epochs, since it signifies the initial distribution before any input is received
-		self._initialState = np.zeros(shape=(nHiddenUnits,1), dtype=dtype)
+		self._initialState = np.ones(shape=(nHiddenUnits,1), dtype=dtype)
 
 	def InitializeWeights(self, wShape, vShape, uShape, method="random"):
 		if method == "random":
@@ -281,6 +285,7 @@ class BPTT_Network(object):
 
 	#Stateful prediction: given current network state, make one output prediction
 	def _predict(self,x):
+		self._Xs.append(x)
 		#get the (|s| x 1) state vector s
 		s = self._V.dot(x) + self._U.dot(self._Ss[-1]) + self._inputBiases
 		#drive signal through the non-linear activation function
@@ -291,10 +296,10 @@ class BPTT_Network(object):
 		y = self._W.dot(s) + self._outputBiases
 		#drive the net signal through the non-linear activation function
 		y = self._outputFunction(y)
-		#save the output state
+		#save the output state; note that the output of the activation is saved, not the original input
 		self._Ys.append(y)
 		#print("YDIM: {}".format(y.shape))
-		self._Xs.append(x)
+		#print(str(y.T))
 		return y
 
 	#Returns column vector with one random bit high.
@@ -308,13 +313,21 @@ class BPTT_Network(object):
 	def Generate(self, reverseEncodingMap):
 		r = self._getRandomOneHotVector(self._numInputs)
 		c = reverseEncodingMap[np.argmax(r)]
-		print(c,end="")
+		word = ""
 
 		for i in range(100):
+			#randomize r 20% of the time to avoid prediction loops
+			if c == '$':
+				print(word)
+				word = ""
+				self._reset()
+				r = self._getRandomOneHotVector(self._numInputs)
+				c = reverseEncodingMap[np.argmax(r)]
+				#print("rando: "+c)
+
+			word += c
 			r = self._predict(r)
 			c = reverseEncodingMap[np.argmax(r)]
-			print(c,end="")
-
 
 	"""
 	Utility for resetting network to its initial state. It still isn't clear what that initial
@@ -368,48 +381,64 @@ def bptt(self, x, y):
     return [dLdU, dLdV, dLdW]
 	"""
 	def Train(self, dataset):
-		bpStepLimit = 2 #the number of time steps to backpropagate errors
+		bpStepLimit = 4 #the number of time steps to backpropagate errors
 		losses = []
+		dCdW = np.zeros(shape=self._W.shape, dtype=dtype)
+		dCdV = np.zeros(shape=self._V.shape, dtype=dtype)
+		dCdU = np.zeros(shape=self._U.shape, dtype=dtype)
+		dCbI = np.zeros(shape=self._inputBiases.shape, dtype=dtype)
 
-		for count, sequence in enumerate(dataset):
-			print("Example count: {}".format(count))
-			if count > 20:
-				avgLoss = sum(losses[count-10:count]) / 20
-				print("AvgLoss: {}".format(avgLoss))
-			self._reset()
-			t_end = len(sequence)
-			xs = [xyPair[0] for xyPair in sequence]
-			ys = [xyPair[1] for xyPair in sequence]
-			#forward propagate entire sequence, storing info needed for weight updates: outputs and states at each time step t
-			self.ForwardPropagate(xs)
+		count = 0
+		random.shuffle(dataset)
+		maxEpochs = 1
 
-			for t in reversed(range(t_end)):
-				#initialize the weight-change matrices in which to accumulate weight changes, since weights are tied in vanilla rnn's
-				dCdW = np.zeros(shape=self._W.shape, dtype=dtype)
-				dCdV = np.zeros(shape=self._V.shape, dtype=dtype)
-				dCdU = np.zeros(shape=self._U.shape, dtype=dtype)
+		for _ in range(maxEpochs):
+			for sequence in dataset:
+				count += 1
+				if count % 50 == 49:
+					avgLoss = sum(losses[count-50:count]) / 50
+					print("Example count {} avgLoss: {}".format(count,avgLoss))
+				self._reset()
+				t_end = len(sequence)
+				xs = [xyPair[0] for xyPair in sequence]
+				ys = [xyPair[1] for xyPair in sequence]
+				#forward propagate entire sequence, storing info needed for weight updates: outputs and states at each time step t
+				self.ForwardPropagate(xs)
 
-				#calculate output error at step t, from which to backprop
-				y_target = sequence[t][1]
-				e_output = y_target - self._Ys[t] #output error per softmax: |y| x 1 vector
-				losses.append(np.absolute(np.sum(e_output)))
-				#W weight matrix can be updated immediately, from the output error
-				dCdW = np.outer(e_output, self._Ss[t].T)
-				#get the initial deltas at time t, which depend on W (instead of U, like the recursive deltas)
-				#print("Eout dim: {}  y_star {} y_hat {}  ss[t] {}".format(e_output.shape, y_target.shape, self._Ys[t].shape, self._Ss[t].shape))
-				deltas = self._hiddenPrime(self._Ss[t]) * self._W.T.dot(e_output)  # |s| x |y| * |y| x 1 = |s| x 1 vector
+				for t in reversed(range(1,t_end)):
+					#initialize the weight-change matrices in which to accumulate weight changes, since weights are tied in vanilla rnn's
+					dCdW[:] = 0
+					dCdV[:] = 0
+					dCdU[:] = 0
+					dCbI[:] = 0
 
-				#print("Eout dim  {}  Delta dim {}".format(e_output.shape,deltas.shape))
-				#calculate the hidden layer deltas, regressing backward from timestep t, up to @bpStepLimit steps
-				for i in reversed(range(max(0,t-bpStepLimit), t)):
-					dCdV += self._V * np.outer(deltas, self._Xs[i])
-					dCdU += self._U * np.outer(deltas, self._Ss[i])
-					deltas = self._hiddenPrime(self._Ss[i-1]) * self._U.dot(deltas)
+					#calculate output error at step t, from which to backprop
+					y_target = sequence[t][1]
+					e_output = y_target - self._Ys[t] #output error per softmax, |y| x 1 vector: 
+					loss = -np.log(self._Ys[t][np.argmax(y_target)])
+					losses.append(loss)
+					#W weight matrix can be updated immediately, from the output error
+					dCdW = np.outer(e_output, self._Ss[t])
+					#biases updated directly from e_output for output biases
+					dCbO = e_output
+					#get the initial deltas at time t, which depend on W (instead of U, like the recursive deltas)
+					#print("Eout dim: {}  y_star {} y_hat {}  ss[t] {}".format(e_output.shape, y_target.shape, self._Ys[t].shape, self._Ss[t].shape))
+					deltas = self._hiddenPrime(self._Ss[t]) * self._W.T.dot(e_output)  # |s| x |y| * |y| x 1 = |s| x 1 vector
 
-				#apply the cumulative weight changes
-				self._W += self._eta * dCdW
-				self._U += self._eta * dCdU
-				self._V += self._eta * dCdV
+					#print("Eout dim  {}  Delta dim {}".format(e_output.shape,deltas.shape))
+					#calculate the hidden layer deltas, regressing backward from timestep t, up to @bpStepLimit steps
+					for i in reversed(range(max(0,t-bpStepLimit), t)):
+						dCbI += deltas
+						dCdV += self._V * np.outer(deltas, self._Xs[i])
+						dCdU += self._U * np.outer(deltas, self._Ss[i])
+						deltas = self._hiddenPrime(self._Ss[i-1]) * self._U.dot(deltas)
+
+					#apply the cumulative weight changes
+					self._W = self._W + self._eta * dCdW
+					self._outputBiases += self._eta * dCbO
+					self._U += self._eta * dCdU
+					self._V += self._eta * dCdV
+					self._inputBiases += self._eta * dCbI
 
 
 
@@ -488,26 +517,27 @@ def bptt(self, x, y):
 def main():
 	dataset, encodingMap = BuildSequenceDataset()
 	reverseEncoding = dict([(encodingMap[key],key) for key in encodingMap.keys()])
-	"""
-	for sequence in dataset:
+
+	print("First few target outputs:")
+	for sequence in dataset[0:20]:
 		word = ""
-		for x in sequence:
-			index = np.argmax(x)
+		for x,y in sequence:
+			index = np.argmax(y)
 			word += reverseEncoding[index]
 		print(word)
-	"""
+
 	print(str(encodingMap))
 	print(str(dataset[0]))
 	print("SHAPE: {} {}".format(dataset[0][0][0].shape, dataset[0][0][1].shape))
 	xDim = dataset[0][0][0].shape[0]
 	yDim = dataset[0][0][1].shape[0]
 	eta = 0.001
-	hiddenUnits = 10
+	hiddenUnits = 30
 
 	net = BPTT_Network(eta, xDim, hiddenUnits, yDim, lossFunction="SSE", outputActivation="SOFTMAX", hiddenActivation="TANH")
 
 	net.Train(dataset)
-	#net.Generate()
+	net.Generate(reverseEncoding)
 
 
 if __name__ == "__main__":
