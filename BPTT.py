@@ -45,13 +45,16 @@ def GetWordSequence(fpath):
 	return words
 
 """
-Returns a list of lists of (x,y) vector pairs describing character data. 
+Returns a list of lists of (x,y) vector pairs describing bigram character data: x=c_i, y=c_i_minus_one.
+
 The data consists of character sequences derived from the novel Treasure Island.
 Training sequences consist of the words of this novel, where the entire novel is lowercased,
 punctuation is dropped, and word are tokenized via split(). Pretty simple. It will be neat to see 
 what kind of words such a neural net could generate.
 
-Each sequence consists of a list of numpy one-hot encoded column-vector (shape=(k,1)) pairs.
+Each sequence consists of a list of numpy one-hot encoded column-vector (shape=(k,1)) pairs. The initial x in 
+every sequence is the start-of-line character '^', and the last y in every sequence is the end-of line character '$'.
+If this is undesired, these input/outputs can just be skipped in training.
 
 """
 def BuildSequenceDataset():
@@ -177,7 +180,7 @@ class BPTT_Network(object):
 		#This is a gotcha, and is not well-defined yet. How is the initial state characterized, as an input? It acts as both input and parameter (to be learnt).
 		#Clever solutions might include backpropagating one step prior to every training sequence to an initial input of uniform inputs (x = all ones), or similar hacks.
 		#setup the initial state; note that this is learnt, and retained across predictions/training epochs, since it signifies the initial distribution before any input is received
-		self._initialState = np.ones(shape=(nHiddenUnits,1), dtype=dtype)
+		self._initialState = np.zeros(shape=(nHiddenUnits,1), dtype=dtype)
 
 	def InitializeWeights(self, wShape, vShape, uShape, method="random"):
 		if method == "random":
@@ -316,6 +319,7 @@ class BPTT_Network(object):
 		word = ""
 
 		for i in range(100):
+			"""
 			#randomize r 20% of the time to avoid prediction loops
 			if c == '$':
 				print(word)
@@ -324,7 +328,12 @@ class BPTT_Network(object):
 				r = self._getRandomOneHotVector(self._numInputs)
 				c = reverseEncodingMap[np.argmax(r)]
 				#print("rando: "+c)
+			"""
 
+			if i % 10 == 9:
+				r = self._getRandomOneHotVector(self._numInputs)
+				word = reverseEncodingMap[np.argmax(r)]
+			print(word)
 			word += c
 			r = self._predict(r)
 			c = reverseEncodingMap[np.argmax(r)]
@@ -381,7 +390,7 @@ def bptt(self, x, y):
     return [dLdU, dLdV, dLdW]
 	"""
 	def Train(self, dataset):
-		bpStepLimit = 4 #the number of time steps to backpropagate errors
+		bpStepLimit = 2 #the number of time steps to backpropagate errors
 		losses = []
 		dCdW = np.zeros(shape=self._W.shape, dtype=dtype)
 		dCdV = np.zeros(shape=self._V.shape, dtype=dtype)
@@ -390,18 +399,21 @@ def bptt(self, x, y):
 
 		count = 0
 		random.shuffle(dataset)
-		maxEpochs = 1
+		maxEpochs = 3
 
 		for _ in range(maxEpochs):
 			for sequence in dataset:
 				count += 1
-				if count % 50 == 49:
-					avgLoss = sum(losses[count-50:count]) / 50
+				if (count < 100 and count % 10 == 9) or count % 100 == 99:
+					lastK = losses[max(0,count-99):count]
+					avgLoss = sum(lastK) / len(lastK)
 					print("Example count {} avgLoss: {}".format(count,avgLoss))
 				self._reset()
-				t_end = len(sequence)
+
+				#clipping the start/end of line characters input/outputs can be done here
 				xs = [xyPair[0] for xyPair in sequence]
 				ys = [xyPair[1] for xyPair in sequence]
+				t_end = len(ys)
 				#forward propagate entire sequence, storing info needed for weight updates: outputs and states at each time step t
 				self.ForwardPropagate(xs)
 
@@ -414,7 +426,9 @@ def bptt(self, x, y):
 
 					#calculate output error at step t, from which to backprop
 					y_target = sequence[t][1]
-					e_output = y_target - self._Ys[t] #output error per softmax, |y| x 1 vector: 
+					e_output = y_target - self._Ys[t] #output error per softmax, |y| x 1 vector. In some lit, the actual error is (y^ - y*); but since we're descending this gradient, negated it is -1.0(y^-y*) = (y*-y^
+					#cross-entropy loss. Only the correct output is included, by definition of cross-entropy: y* x log(y^); all correct 0 classes' terms are zero.
+					#loss = np.sum(np.absolute(self._Ys[t] - y_target))
 					loss = -np.log(self._Ys[t][np.argmax(y_target)])
 					losses.append(loss)
 					#W weight matrix can be updated immediately, from the output error
@@ -427,14 +441,23 @@ def bptt(self, x, y):
 
 					#print("Eout dim  {}  Delta dim {}".format(e_output.shape,deltas.shape))
 					#calculate the hidden layer deltas, regressing backward from timestep t, up to @bpStepLimit steps
-					for i in reversed(range(max(0,t-bpStepLimit), t)):
+					steps = 0.0
+					for i in range(max(0,t-bpStepLimit), t+1):  # eg, [4,5,6] for t==7 bpStepLimit==3
 						dCbI += deltas
-						dCdV += self._V * np.outer(deltas, self._Xs[i])
-						dCdU += self._U * np.outer(deltas, self._Ss[i])
-						deltas = self._hiddenPrime(self._Ss[i-1]) * self._U.dot(deltas)
+						dCdV += np.outer(deltas, self._Xs[t-i])
+						dCdU += np.outer(deltas, self._Ss[t-i-1])
+						deltas = self._hiddenPrime(self._Ss[t-i-1]) * self._U.dot(deltas)
+						steps += 1
+
+					
+					#Average the weight changes per number of steps, since tied. This is optional.
+					dCbI /= steps
+					dCdV /= steps
+					dCdU /= steps
+					
 
 					#apply the cumulative weight changes
-					self._W = self._W + self._eta * dCdW
+					self._W += self._eta * dCdW
 					self._outputBiases += self._eta * dCbO
 					self._U += self._eta * dCdU
 					self._V += self._eta * dCdV
@@ -532,7 +555,7 @@ def main():
 	xDim = dataset[0][0][0].shape[0]
 	yDim = dataset[0][0][1].shape[0]
 	eta = 0.001
-	hiddenUnits = 30
+	hiddenUnits = 28
 
 	net = BPTT_Network(eta, xDim, hiddenUnits, yDim, lossFunction="SSE", outputActivation="SOFTMAX", hiddenActivation="TANH")
 
