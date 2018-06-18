@@ -76,7 +76,7 @@ def BuildSequenceDataset():
 	startVector[charMap['^'],0] = 1
 	endVector = np.zeros(shape=(numClasses,1), dtype=np.int32)
 	endVector[charMap['$'],0] = 1
-	for word in words[10000:20000]: #word sequence is truncated, since full text might be explosive
+	for word in words[10000:50000]: #word sequence is truncated, since full text might be explosive
 		sequence = [startVector]
 		#get the raw sequence of one-hot vectors representing characters
 		for c in word:
@@ -104,8 +104,8 @@ class Neuron(object):
 
 	#NOTE: This assumes that z = tanh(x)!! That is, assumes z already represents the output of tanh.
 	@staticmethod
-	def TanhPrime(z):
-		return 1 - z ** 2
+	def TanhPrime(z_tanh):
+		return 1 - z_tanh ** 2
 		#return 1 - (Neuron.Tanh(z) ** 2)
 
 	#@z: A vector. Softmax is a vector valued function.
@@ -123,9 +123,9 @@ class Neuron(object):
 		return 1 / (1 + np.exp(-z))
 		
 	@staticmethod
-	def SigmoidPrime(z):
-		sig = Neuron.Sigmoid(z)
-		return sig * (1 - sig)
+	#NOTE: This assume @z_sig already represents a sigmoid output!
+	def SigmoidPrime(z_sig):
+		return z_sig * (1 - z_sig)
 
 	#loss functions. These take in two vectors, y' and y*, and produce a scalar output.
 	@staticmethod
@@ -390,16 +390,18 @@ def bptt(self, x, y):
     return [dLdU, dLdV, dLdW]
 	"""
 	def Train(self, dataset):
-		bpStepLimit = 2 #the number of time steps to backpropagate errors
+		bpStepLimit = 15 #the number of time steps to backpropagate errors
 		losses = []
 		dCdW = np.zeros(shape=self._W.shape, dtype=dtype)
 		dCdV = np.zeros(shape=self._V.shape, dtype=dtype)
 		dCdU = np.zeros(shape=self._U.shape, dtype=dtype)
 		dCbI = np.zeros(shape=self._inputBiases.shape, dtype=dtype)
+		dCbO = np.zeros(shape=self._outputBiases.shape, dtype=dtype)
 
 		count = 0
 		random.shuffle(dataset)
-		maxEpochs = 3
+		maxEpochs = 6
+		minLoss = 99999.0
 
 		for _ in range(maxEpochs):
 			for sequence in dataset:
@@ -407,7 +409,8 @@ def bptt(self, x, y):
 				if (count < 100 and count % 10 == 9) or count % 100 == 99:
 					lastK = losses[max(0,count-99):count]
 					avgLoss = sum(lastK) / len(lastK)
-					print("Example count {} avgLoss: {}".format(count,avgLoss))
+					minLoss = min(minLoss,avgLoss)
+					print("Example count {} avgLoss: {}  minLoss: {}  {}".format(count,avgLoss,minLoss, str(self._Ys[-1].T)))
 				self._reset()
 
 				#clipping the start/end of line characters input/outputs can be done here
@@ -417,12 +420,15 @@ def bptt(self, x, y):
 				#forward propagate entire sequence, storing info needed for weight updates: outputs and states at each time step t
 				self.ForwardPropagate(xs)
 
+				dCdW[:] = 0
+				dCdV[:] = 0
+				dCdU[:] = 0
+				dCbI[:] = 0
+				dCbO[:] = 0
+				steps = 0.0
+
 				for t in reversed(range(1,t_end)):
 					#initialize the weight-change matrices in which to accumulate weight changes, since weights are tied in vanilla rnn's
-					dCdW[:] = 0
-					dCdV[:] = 0
-					dCdU[:] = 0
-					dCbI[:] = 0
 
 					#calculate output error at step t, from which to backprop
 					y_target = sequence[t][1]
@@ -432,16 +438,15 @@ def bptt(self, x, y):
 					loss = -np.log(self._Ys[t][np.argmax(y_target)])
 					losses.append(loss)
 					#W weight matrix can be updated immediately, from the output error
-					dCdW = np.outer(e_output, self._Ss[t])
+					dCdW += np.outer(e_output, self._Ss[t])
 					#biases updated directly from e_output for output biases
-					dCbO = e_output
+					dCbO += e_output
 					#get the initial deltas at time t, which depend on W (instead of U, like the recursive deltas)
 					#print("Eout dim: {}  y_star {} y_hat {}  ss[t] {}".format(e_output.shape, y_target.shape, self._Ys[t].shape, self._Ss[t].shape))
 					deltas = self._hiddenPrime(self._Ss[t]) * self._W.T.dot(e_output)  # |s| x |y| * |y| x 1 = |s| x 1 vector
 
 					#print("Eout dim  {}  Delta dim {}".format(e_output.shape,deltas.shape))
 					#calculate the hidden layer deltas, regressing backward from timestep t, up to @bpStepLimit steps
-					steps = 0.0
 					for i in range(max(0,t-bpStepLimit), t+1):  # eg, [4,5,6] for t==7 bpStepLimit==3
 						dCbI += deltas
 						dCdV += np.outer(deltas, self._Xs[t-i])
@@ -449,19 +454,19 @@ def bptt(self, x, y):
 						deltas = self._hiddenPrime(self._Ss[t-i-1]) * self._U.dot(deltas)
 						steps += 1
 
-					
-					#Average the weight changes per number of steps, since tied. This is optional.
-					dCbI /= steps
-					dCdV /= steps
-					dCdU /= steps
-					
+				#Average the weight changes per number of steps, since tied. This is optional.
+				dCbI /= steps
+				dCdV /= steps
+				dCdU /= steps
+				dCbO /= len(ys)
+				dCdW /= len(ys)
 
-					#apply the cumulative weight changes
-					self._W += self._eta * dCdW
-					self._outputBiases += self._eta * dCbO
-					self._U += self._eta * dCdU
-					self._V += self._eta * dCdV
-					self._inputBiases += self._eta * dCbI
+				#apply the cumulative weight changes
+				self._W += self._eta * dCdW
+				self._outputBiases += self._eta * dCbO
+				self._U += self._eta * dCdU
+				self._V += self._eta * dCdV
+				self._inputBiases += self._eta * dCbI
 
 
 
@@ -554,8 +559,8 @@ def main():
 	print("SHAPE: {} {}".format(dataset[0][0][0].shape, dataset[0][0][1].shape))
 	xDim = dataset[0][0][0].shape[0]
 	yDim = dataset[0][0][1].shape[0]
-	eta = 0.001
-	hiddenUnits = 28
+	eta = 0.01
+	hiddenUnits = 35
 
 	net = BPTT_Network(eta, xDim, hiddenUnits, yDim, lossFunction="SSE", outputActivation="SOFTMAX", hiddenActivation="TANH")
 
