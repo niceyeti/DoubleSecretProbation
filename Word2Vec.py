@@ -3,6 +3,13 @@ A wrapper around a word2vec implementation for experimental usage only, just pla
 around with different implementations for evaluation.
 
 The code libraries used are the property of their respective authors.
+
+
+***GenSim implements a bunch of nice training data stream objects, for training from files of line-based
+training sequences (sentences), and so forth. Moving stuff into ABLE/Sentinel could be as easy as
+inheriting from those classes to implement ones that would read and preprocess headline objects
+and so on. Use good practices and recognize that most of the etl boilerplate can probably be covered
+via stream classes that perform all that internal logic.
 """
 
 #from util.ascii_text_normalizer import AsciiTextNormalizer

@@ -312,31 +312,44 @@ class BPTT_Network(object):
 		r[i,0] = 1.0
 		return r
 
+	def _selectStochasticIndex(self, yT):
+		"""
+		Given a horizontal (1xn) vector @yT of multinomial class probabilities, which by definition must sum to 1.0,
+		and a number @r in [0.0,1.0], this returns the index of the class whose region @r falls within.
+		This probabilistic choice procedure will choose the class with 0.8452... probability with
+		probability 0.8452... by the central limit theorem.
+		Precondition: @r is in [0.0,1.0] and sum(@yT) = 1.0.
+		"""
+		cdf = 0.0
+		r = random.randint(0,1000) / 1000.0
+
+		for i in range(yT.shape[1]):
+			cdf += yT[0][i]
+			if cdf >= r:
+				return i
+
+		return yT.shape[1]-1
+
 	#Generates sequences by starting from a random state and making a prediction, then feeding these predictions back as input
-	def Generate(self, reverseEncodingMap):
-		r = self._getRandomOneHotVector(self._numInputs)
-		c = reverseEncodingMap[np.argmax(r)]
+	#@stochastic: If true, rather than argmax(y), the output is chosen probabilistically wrt each output class' probability.
+	def Generate(self, reverseEncodingMap, stochastic=False):
+		y_hat = self._getRandomOneHotVector(self._numInputs)
+		c = reverseEncodingMap[np.argmax(y_hat)]
 		word = ""
 
 		for i in range(100):
-			"""
-			#randomize r 20% of the time to avoid prediction loops
-			if c == '$':
-				print(word)
-				word = ""
-				self._reset()
-				r = self._getRandomOneHotVector(self._numInputs)
-				c = reverseEncodingMap[np.argmax(r)]
-				#print("rando: "+c)
-			"""
-
-			if i % 10 == 9:
-				r = self._getRandomOneHotVector(self._numInputs)
-				word = reverseEncodingMap[np.argmax(r)]
-			print(word)
 			word += c
-			r = self._predict(r)
-			c = reverseEncodingMap[np.argmax(r)]
+			y_hat = self._predict(y_hat)
+
+			#get the index of the output, either stochastically or just via argmax(y)
+			if stochastic:
+				y_i = self._selectStochasticIndex(y_hat)
+			else:
+				y_i = np.argmax(y_hat)
+
+			c = reverseEncodingMap[y_i]
+
+		print(word)
 
 	"""
 	Utility for resetting network to its initial state. It still isn't clear what that initial
@@ -389,7 +402,24 @@ def bptt(self, x, y):
             delta_t = self.W.T.dot(delta_t) * (1 - s[bptt_step-1] ** 2)
     return [dLdU, dLdV, dLdW]
 	"""
-	def Train(self, dataset):
+
+	def getMinibatch(self, dataset, k):
+		"""
+		Given a dataset as a sequence of (X,Y), select k examples at random and return as sequence.
+		If @k >= len(dataset)/2, then the entire dataset is returned.
+		"""
+		n = len(dataset)
+		if k > (n/2):
+			return dataset
+
+		examples = []
+		for i in range(k):
+			r_i = random.randint(0,n-1)
+			examples.append(dataset[r_i])
+
+		return examples
+
+	def Train(self, dataset, maxEpochs=1000, miniBatchSize=4):
 		bpStepLimit = 15 #the number of time steps to backpropagate errors
 		losses = []
 		dCdW = np.zeros(shape=self._W.shape, dtype=dtype)
@@ -400,17 +430,25 @@ def bptt(self, x, y):
 
 		count = 0
 		random.shuffle(dataset)
-		maxEpochs = 6
 		minLoss = 99999.0
 
 		for _ in range(maxEpochs):
-			for sequence in dataset:
+			miniBatch = self.getMinibatch(dataset, miniBatchSize)
+			dCdW[:] = 0
+			dCdV[:] = 0
+			dCdU[:] = 0
+			dCbI[:] = 0
+			dCbO[:] = 0
+
+			#accumulate gradients over all random sequences in mini-batch
+			for sequence in miniBatch:
 				count += 1
 				if (count < 100 and count % 10 == 9) or count % 100 == 99:
 					lastK = losses[max(0,count-99):count]
 					avgLoss = sum(lastK) / len(lastK)
 					minLoss = min(minLoss,avgLoss)
-					print("Example count {} avgLoss: {}  minLoss: {}  {}".format(count,avgLoss,minLoss, str(self._Ys[-1].T)))
+					print("Example count {} avgLoss: {}  minLoss: {}".format(count,avgLoss,minLoss))
+					#print("Example count {} avgLoss: {}  minLoss: {}  {}".format(count,avgLoss,minLoss, str(self._Ys[-1].T)))
 				self._reset()
 
 				#clipping the start/end of line characters input/outputs can be done here
@@ -420,11 +458,13 @@ def bptt(self, x, y):
 				#forward propagate entire sequence, storing info needed for weight updates: outputs and states at each time step t
 				self.ForwardPropagate(xs)
 
+				"""
 				dCdW[:] = 0
 				dCdV[:] = 0
 				dCdU[:] = 0
 				dCbI[:] = 0
 				dCbO[:] = 0
+				"""
 				steps = 0.0
 
 				for t in reversed(range(1,t_end)):
@@ -454,19 +494,21 @@ def bptt(self, x, y):
 						deltas = self._hiddenPrime(self._Ss[t-i-1]) * self._U.dot(deltas)
 						steps += 1
 
+				"""
 				#Average the weight changes per number of steps, since tied. This is optional.
 				dCbI /= steps
 				dCdV /= steps
 				dCdU /= steps
 				dCbO /= len(ys)
 				dCdW /= len(ys)
+				"""
 
-				#apply the cumulative weight changes
-				self._W += self._eta * dCdW
-				self._outputBiases += self._eta * dCbO
-				self._U += self._eta * dCdU
-				self._V += self._eta * dCdV
-				self._inputBiases += self._eta * dCbI
+			#apply the cumulative weight changes
+			self._W += self._eta * dCdW
+			self._outputBiases += self._eta * dCbO
+			self._U += self._eta * dCdU
+			self._V += self._eta * dCdV
+			self._inputBiases += self._eta * dCbI
 
 
 
@@ -559,13 +601,16 @@ def main():
 	print("SHAPE: {} {}".format(dataset[0][0][0].shape, dataset[0][0][1].shape))
 	xDim = dataset[0][0][0].shape[0]
 	yDim = dataset[0][0][1].shape[0]
-	eta = 0.01
-	hiddenUnits = 35
+	eta = 0.001
+	hiddenUnits = 30
+	maxEpochs = 30000
+	miniBatchSize = 4
+
 
 	net = BPTT_Network(eta, xDim, hiddenUnits, yDim, lossFunction="SSE", outputActivation="SOFTMAX", hiddenActivation="TANH")
 
-	net.Train(dataset)
-	net.Generate(reverseEncoding)
+	net.Train(dataset, maxEpochs, miniBatchSize)
+	net.Generate(reverseEncoding, stochastic=True)
 
 
 if __name__ == "__main__":
