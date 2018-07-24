@@ -307,10 +307,14 @@ class BPTT_Network(object):
 
 	#Returns column vector with one random bit high.
 	def _getRandomOneHotVector(self,dim):
-		i = np.random.randint(dim)
-		r = np.zeros(shape=(dim,1))
-		r[i,0] = 1.0
-		return r
+		r = np.random.randint(dim-1)
+		return self._buildOneHotVector(dim, r)
+
+	#Returns a colun vector with the chosen index high, all others zero
+	def _buildOneHotVector(self, dim, i):
+		v = np.zeros(shape=(dim,1))
+		v[i,0] = 1.0
+		return v
 
 	def _selectStochasticIndex(self, yT):
 		"""
@@ -323,33 +327,35 @@ class BPTT_Network(object):
 		cdf = 0.0
 		r = random.randint(0,1000) / 1000.0
 
-		for i in range(yT.shape[1]):
-			cdf += yT[0][i]
+		#print("r={} SHAPE: {}".format(r, yT.shape))
+		for i in range(yT.shape[0]):
+			cdf += yT[i][0]
+			#print("cdf={} i={} r={}".format(cdf, i, r))
 			if cdf >= r:
+				#print("HIT cdf={} i={} r={}".format(cdf, i, r))
 				return i
 
-		return yT.shape[1]-1
+		return yT.shape[0]-1
 
 	#Generates sequences by starting from a random state and making a prediction, then feeding these predictions back as input
 	#@stochastic: If true, rather than argmax(y), the output is chosen probabilistically wrt each output class' probability.
 	def Generate(self, reverseEncodingMap, stochastic=False):
-		y_hat = self._getRandomOneHotVector(self._numInputs)
-		c = reverseEncodingMap[np.argmax(y_hat)]
-		word = ""
+		for i, c in reverseEncodingMap.items():
+			y_hat = self._buildOneHotVector(self._numInputs, i)
+			c = reverseEncodingMap[np.argmax(y_hat)]
+			word = ""
+			for i in range(20):
+				word += c
+				y_hat = self._predict(y_hat)
+				#get the index of the output, either stochastically or just via argmax(y)
+				if stochastic:
+					y_i = self._selectStochasticIndex(y_hat)
+					#print("{} sum: {}".format(y_hat, np.sum(y_hat)))
+				else:
+					y_i = np.argmax(y_hat)
+				c = reverseEncodingMap[y_i]
 
-		for i in range(100):
-			word += c
-			y_hat = self._predict(y_hat)
-
-			#get the index of the output, either stochastically or just via argmax(y)
-			if stochastic:
-				y_i = self._selectStochasticIndex(y_hat)
-			else:
-				y_i = np.argmax(y_hat)
-
-			c = reverseEncodingMap[y_i]
-
-		print(word)
+			print(word)
 
 	"""
 	Utility for resetting network to its initial state. It still isn't clear what that initial
@@ -419,6 +425,9 @@ def bptt(self, x, y):
 
 		return examples
 
+	"""
+	some notes: could snapshot and return weights at minimum error
+	"""
 	def Train(self, dataset, maxEpochs=1000, miniBatchSize=4):
 		bpStepLimit = 15 #the number of time steps to backpropagate errors
 		losses = []
@@ -603,9 +612,8 @@ def main():
 	yDim = dataset[0][0][1].shape[0]
 	eta = 0.001
 	hiddenUnits = 30
-	maxEpochs = 30000
-	miniBatchSize = 4
-
+	maxEpochs = 500
+	miniBatchSize = 40
 
 	net = BPTT_Network(eta, xDim, hiddenUnits, yDim, lossFunction="SSE", outputActivation="SOFTMAX", hiddenActivation="TANH")
 
