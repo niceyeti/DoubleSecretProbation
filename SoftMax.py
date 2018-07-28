@@ -145,7 +145,7 @@ def _softmax(z):
 	
 """
 Trains according to straightforward multiclass softmax regression of one-hot encoded
-output vectors.
+output vectors using stochastic gradient descent
 
 This function is purely my own experiment, to learn softmax regression.
 
@@ -229,7 +229,7 @@ def SoftMaxTraining(trainingData):
 		
 def SklearnMultinomialRegression(training, classDict):
 
-	revDict = dict((np.argmax(classDict[key]), key) for key in classDict.keys())
+	revDict = dict((classDict[key], key) for key in classDict.keys())
 
 	x_train = [tup[0] for tup in training]
 	y_train = [revDict[np.argmax(tup[1])] for tup in training]
@@ -237,9 +237,11 @@ def SklearnMultinomialRegression(training, classDict):
 	print(str(x_train[0].shape))
 	#print(str(y_train[0].shape))
 	# Train multinomial logistic regression model
-	mul_lr = linear_model.LogisticRegression(multi_class='multinomial', solver='newton-cg').fit(x_train, y_train)
+	print("Training sklearn multinomial model using newton conjugate gradient...")
+	mul_lr = linear_model.LogisticRegression(multi_class='multinomial', solver='newton-cg')
+	model = mul_lr.fit(x_train, y_train)
 
-	print("Multinomial Logistic regression Train Accuracy :  ", metrics.accuracy_score(y_train, mul_lr.predict(x_train)))
+	print("Multinomial Logistic regression Train Accuracy :  ", metrics.accuracy_score(y_train, model.predict(x_train)))
 	#print("Multinomial Logistic regression Test Accuracy : ", metrics.accuracy_score(test_y, mul_lr.predict(test_x)))
 
 
@@ -253,8 +255,11 @@ def main():
 		print("ERROR must pass --ocr or --mnist to select dataset")
 		exit()
 	print(str(training[0]))
-	SoftMaxTraining(training)
-	#SklearnMultinomialRegression(training, classDict)
+
+	training = training[0:10000]
+
+	#SoftMaxTraining(training)
+	SklearnMultinomialRegression(training, classDict)
 
 
 

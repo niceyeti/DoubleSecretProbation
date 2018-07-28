@@ -70,13 +70,13 @@ def BuildSequenceDataset():
 	#add beginning and ending special characters to delimit beginning and end of sequences
 	charMap['^'] = i
 	charMap['$'] = i + 1
-	print("num classes: {}".format(len(words)))
+	print("num classes: {}  num sequences: {}".format(len(charMap.keys()), len(words)))
 	numClasses = len(charMap.keys())
 	startVector = np.zeros(shape=(numClasses,1), dtype=np.int32)
 	startVector[charMap['^'],0] = 1
 	endVector = np.zeros(shape=(numClasses,1), dtype=np.int32)
 	endVector[charMap['$'],0] = 1
-	for word in words[10000:50000]: #word sequence is truncated, since full text might be explosive
+	for word in words:#[10000:50000]: #word sequence can be truncated, since full text might be explosive
 		sequence = [startVector]
 		#get the raw sequence of one-hot vectors representing characters
 		for c in word:
@@ -428,8 +428,8 @@ def bptt(self, x, y):
 	"""
 	some notes: could snapshot and return weights at minimum error
 	"""
-	def Train(self, dataset, maxEpochs=1000, miniBatchSize=4):
-		bpStepLimit = 15 #the number of time steps to backpropagate errors
+	def Train(self, dataset, maxEpochs=1000, miniBatchSize=4, clipGrad=False, momentum=0.0001):
+		bpStepLimit = 4 #the number of time steps to backpropagate errors
 		losses = []
 		dCdW = np.zeros(shape=self._W.shape, dtype=dtype)
 		dCdV = np.zeros(shape=self._V.shape, dtype=dtype)
@@ -437,18 +437,35 @@ def bptt(self, x, y):
 		dCbI = np.zeros(shape=self._inputBiases.shape, dtype=dtype)
 		dCbO = np.zeros(shape=self._outputBiases.shape, dtype=dtype)
 
+		#momentum based deltas
+		dCdW_prev = np.zeros(shape=self._W.shape, dtype=dtype)
+		dCdV_prev = np.zeros(shape=self._V.shape, dtype=dtype)
+		dCdU_prev = np.zeros(shape=self._U.shape, dtype=dtype)
+		dCbI_prev = np.zeros(shape=self._inputBiases.shape, dtype=dtype)
+		dCbO_prev = np.zeros(shape=self._outputBiases.shape, dtype=dtype)
+
+		#under construction; for saving the weights at the minimum error during training (hackish, probably not worth it)
+		W_min = np.zeros(shape=self._W.shape, dtype=dtype)
+		V_min = np.zeros(shape=self._V.shape, dtype=dtype)
+		U_min = np.zeros(shape=self._U.shape, dtype=dtype)
+		Bi_min = np.zeros(shape=self._inputBiases.shape, dtype=dtype)
+		Bo_min = np.zeros(shape=self._outputBiases.shape, dtype=dtype)
+
 		count = 0
 		random.shuffle(dataset)
 		minLoss = 99999.0
+		useMomentum = momentum > 0.0
 
 		for _ in range(maxEpochs):
-			miniBatch = self.getMinibatch(dataset, miniBatchSize)
+			#initialize the weight-change matrices in which to accumulate weight changes, since weights are tied in vanilla rnn's
 			dCdW[:] = 0
 			dCdV[:] = 0
 			dCdU[:] = 0
 			dCbI[:] = 0
 			dCbO[:] = 0
+			steps = 0
 
+			miniBatch = self.getMinibatch(dataset, miniBatchSize)
 			#accumulate gradients over all random sequences in mini-batch
 			for sequence in miniBatch:
 				count += 1
@@ -456,7 +473,7 @@ def bptt(self, x, y):
 					lastK = losses[max(0,count-99):count]
 					avgLoss = sum(lastK) / len(lastK)
 					minLoss = min(minLoss,avgLoss)
-					print("Example count {} avgLoss: {}  minLoss: {}".format(count,avgLoss,minLoss))
+					print("Example batch count {} avgLoss: {}  minLoss: {}".format(count,avgLoss,minLoss))
 					#print("Example count {} avgLoss: {}  minLoss: {}  {}".format(count,avgLoss,minLoss, str(self._Ys[-1].T)))
 				self._reset()
 
@@ -467,18 +484,7 @@ def bptt(self, x, y):
 				#forward propagate entire sequence, storing info needed for weight updates: outputs and states at each time step t
 				self.ForwardPropagate(xs)
 
-				"""
-				dCdW[:] = 0
-				dCdV[:] = 0
-				dCdU[:] = 0
-				dCbI[:] = 0
-				dCbO[:] = 0
-				"""
-				steps = 0.0
-
 				for t in reversed(range(1,t_end)):
-					#initialize the weight-change matrices in which to accumulate weight changes, since weights are tied in vanilla rnn's
-
 					#calculate output error at step t, from which to backprop
 					y_target = sequence[t][1]
 					e_output = y_target - self._Ys[t] #output error per softmax, |y| x 1 vector. In some lit, the actual error is (y^ - y*); but since we're descending this gradient, negated it is -1.0(y^-y*) = (y*-y^
@@ -497,27 +503,34 @@ def bptt(self, x, y):
 					#print("Eout dim  {}  Delta dim {}".format(e_output.shape,deltas.shape))
 					#calculate the hidden layer deltas, regressing backward from timestep t, up to @bpStepLimit steps
 					for i in range(max(0,t-bpStepLimit), t+1):  # eg, [4,5,6] for t==7 bpStepLimit==3
+						if clipGrad:
+							#clip the gradients (OPTIONAL)
+							deltas = np.clip(deltas, -1.0, 1.0)
 						dCbI += deltas
 						dCdV += np.outer(deltas, self._Xs[t-i])
 						dCdU += np.outer(deltas, self._Ss[t-i-1])
 						deltas = self._hiddenPrime(self._Ss[t-i-1]) * self._U.dot(deltas)
 						steps += 1
 
-				"""
-				#Average the weight changes per number of steps, since tied. This is optional.
-				dCbI /= steps
-				dCdV /= steps
-				dCdU /= steps
-				dCbO /= len(ys)
-				dCdW /= len(ys)
-				"""
+			#apply the cumulative weight changes; the latter incorporates momentum
+			if not useMomentum:
+				self._W += self._eta * dCdW
+				self._outputBiases += self._eta * dCbO
+				self._U += self._eta * dCdU
+				self._V += self._eta * dCdV
+				self._inputBiases += self._eta * dCbI
+			else:
+				self._W += self._eta * dCdW + momentum * dCdW_prev
+				self._outputBiases += self._eta * dCbO + momentum * dCbO_prev
+				self._U += self._eta * dCdU + momentum * dCdU_prev
+				self._V += self._eta * dCdV + momentum * dCdV_prev
+				self._inputBiases += self._eta * dCbI + momentum * dCbI_prev
+				dCdW_prev[:] = dCdW[:]
+				dCbO_prev[:] = dCbO[:]
+				dCdU_prev[:] = dCdU[:]
+				dCdV_prev[:] = dCdV[:]
+				dCbI_prev[:] = dCbI[:]
 
-			#apply the cumulative weight changes
-			self._W += self._eta * dCdW
-			self._outputBiases += self._eta * dCbO
-			self._U += self._eta * dCdU
-			self._V += self._eta * dCdV
-			self._inputBiases += self._eta * dCbI
 
 
 
@@ -606,16 +619,18 @@ def main():
 		print(word)
 
 	print(str(encodingMap))
-	print(str(dataset[0]))
+	#print(str(dataset[0]))
 	print("SHAPE: {} {}".format(dataset[0][0][0].shape, dataset[0][0][1].shape))
 	xDim = dataset[0][0][0].shape[0]
 	yDim = dataset[0][0][1].shape[0]
 	eta = 0.001
-	hiddenUnits = 30
-	maxEpochs = 500
-	miniBatchSize = 40
+	hiddenUnits = 64
+	maxEpochs = 1000
+	miniBatchSize = 10
 
-	net = BPTT_Network(eta, xDim, hiddenUnits, yDim, lossFunction="SSE", outputActivation="SOFTMAX", hiddenActivation="TANH")
+	print("TODO: Implement sigmoid and tanh scaling to prevent over-saturation; see Simon Haykin's backprop implementation notes")
+	print("TOOD: Implement training/test evaluation methods, beyond the cost function. Evaluate the probability of sequences in train/test data.")
+	net = BPTT_Network(eta, xDim, hiddenUnits, yDim, lossFunction="SSE", outputActivation="SOFTMAX", hiddenActivation="SIGMOID")
 
 	net.Train(dataset, maxEpochs, miniBatchSize)
 	net.Generate(reverseEncoding, stochastic=True)
