@@ -427,9 +427,10 @@ def bptt(self, x, y):
 
 	"""
 	some notes: could snapshot and return weights at minimum error
+
+	@saveMinWeights: If true, snapshot the weights at the minimum training error.
 	"""
-	def Train(self, dataset, maxEpochs=1000, miniBatchSize=4, clipGrad=False, momentum=0.0001):
-		bpStepLimit = 4 #the number of time steps to backpropagate errors
+	def Train(self, dataset, maxEpochs=1000, miniBatchSize=4, bpStepLimit=4, clipGrad=False, momentum=0.0001, saveMinWeights=True):
 		losses = []
 		dCdW = np.zeros(shape=self._W.shape, dtype=dtype)
 		dCdV = np.zeros(shape=self._V.shape, dtype=dtype)
@@ -472,7 +473,15 @@ def bptt(self, x, y):
 				if (count < 100 and count % 10 == 9) or count % 100 == 99:
 					lastK = losses[max(0,count-99):count]
 					avgLoss = sum(lastK) / len(lastK)
-					minLoss = min(minLoss,avgLoss)
+					if avgLoss < minLoss:
+						minLoss = avgLoss
+						if saveMinWeights:
+							W_min = self._W[:]
+							Bo_min = self._outputBiases[:]
+							U_min = self._U[:]
+							V_min = self._V[:]
+							Bi_min = self._inputBiases[:]
+
 					print("Example batch count {} avgLoss: {}  minLoss: {}".format(count,avgLoss,minLoss))
 					#print("Example count {} avgLoss: {}  minLoss: {}  {}".format(count,avgLoss,minLoss, str(self._Ys[-1].T)))
 				self._reset()
@@ -499,10 +508,8 @@ def bptt(self, x, y):
 					#get the initial deltas at time t, which depend on W (instead of U, like the recursive deltas)
 					#print("Eout dim: {}  y_star {} y_hat {}  ss[t] {}".format(e_output.shape, y_target.shape, self._Ys[t].shape, self._Ss[t].shape))
 					deltas = self._hiddenPrime(self._Ss[t]) * self._W.T.dot(e_output)  # |s| x |y| * |y| x 1 = |s| x 1 vector
-
-					#print("Eout dim  {}  Delta dim {}".format(e_output.shape,deltas.shape))
-					#calculate the hidden layer deltas, regressing backward from timestep t, up to @bpStepLimit steps
-					for i in range(max(0,t-bpStepLimit), t+1):  # eg, [4,5,6] for t==7 bpStepLimit==3
+					#Calculate the hidden layer deltas, regressing backward from timestep t, up to @bpStepLimit steps
+					for i in range(0, min(bpStepLimit,t+1)):  # eg, [4,5,6] for t==7 bpStepLimit==3. 
 						if clipGrad:
 							#clip the gradients (OPTIONAL)
 							deltas = np.clip(deltas, -1.0, 1.0)
@@ -531,8 +538,13 @@ def bptt(self, x, y):
 				dCdV_prev[:] = dCdV[:]
 				dCbI_prev[:] = dCbI[:]
 
-
-
+		if saveMinWeights:
+			#reload the weights from the min training error 			
+			self._W = W_min[:]
+			self._outputBiases = Bo_min[:]
+			self._U = U_min[:]
+			self._V = V_min[:]
+			self._inputBiases = Bi_min[:]
 
 """
 			for i, xyPair in enumerate(sequence):
@@ -623,17 +635,25 @@ def main():
 	print("SHAPE: {} {}".format(dataset[0][0][0].shape, dataset[0][0][1].shape))
 	xDim = dataset[0][0][0].shape[0]
 	yDim = dataset[0][0][1].shape[0]
-	eta = 0.001
+	eta = 0.00002
 	hiddenUnits = 64
-	maxEpochs = 1000
-	miniBatchSize = 10
+	maxEpochs = 400
+	miniBatchSize = 100
+	momentum = 0.0001
+	clipGrad = False
+	saveMinWeights = True
+	bpStepLimit = 3
 
 	print("TODO: Implement sigmoid and tanh scaling to prevent over-saturation; see Simon Haykin's backprop implementation notes")
 	print("TOOD: Implement training/test evaluation methods, beyond the cost function. Evaluate the probability of sequences in train/test data.")
 	net = BPTT_Network(eta, xDim, hiddenUnits, yDim, lossFunction="SSE", outputActivation="SOFTMAX", hiddenActivation="SIGMOID")
 
-	net.Train(dataset, maxEpochs, miniBatchSize)
+	#Train(self, dataset, maxEpochs=1000, miniBatchSize=4, clipGrad=False, momentum=0.0001, saveMinWeights=True):
+	net.Train(dataset, maxEpochs, miniBatchSize, bpStepLimit=bpStepLimit, clipGrad=clipGrad, momentum=momentum, saveMinWeights=saveMinWeights)
+	print("Stochastic sampling: ")
 	net.Generate(reverseEncoding, stochastic=True)
+	print("Max sampling (expect cycles/repetition): ")
+	net.Generate(reverseEncoding, stochastic=False)
 
 
 if __name__ == "__main__":

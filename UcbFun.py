@@ -262,7 +262,7 @@ def Experiment():
 	plt.show()
 	
 	
-#_plotUcb1ConfidenceBound()
+_plotUcb1ConfidenceBound()
 #_plotUcbNormalConfidenceBound()
 
 
