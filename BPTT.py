@@ -14,21 +14,17 @@ Input data:
 
 """
 
-"""
-Applies the softmax function to the input vector z. Vector z is not modified.
-This applies the "safe" version of softmax where the input is shifted by constant
-c, where c = max(z), for numerical stability.
-
-Returns: A vector y_hat, produced by softmax.
-"""
-
 import numpy as np
 import string
 import re
 import sys
 import random
+import torch
 
-dtype=np.float64
+from my_rnn import *
+
+#Best to stick with float; torch is more float32 friendly according to highly reliable online comments
+numpy_default_dtype=np.float32
 
 """
 Returns all words in some file, with all non-alphabetic characters removed, and lowercased.
@@ -45,7 +41,7 @@ def GetWordSequence(fpath):
 	return words
 
 """
-Returns a list of lists of (x,y) vector pairs describing bigram character data: x=c_i, y=c_i_minus_one.
+Returns a list of lists of (x,y) numpy vector pairs describing bigram character data: x=c_i, y=c_i_minus_one.
 
 The data consists of character sequences derived from the novel Treasure Island.
 Training sequences consist of the words of this novel, where the entire novel is lowercased,
@@ -56,11 +52,12 @@ Each sequence consists of a list of numpy one-hot encoded column-vector (shape=(
 every sequence is the start-of-line character '^', and the last y in every sequence is the end-of line character '$'.
 If this is undesired, these input/outputs can just be skipped in training.
 
+@asTensor: If true, store dataset items as pytorch tensors instead of numpy matrices
 """
-def BuildSequenceDataset():
+def BuildSequenceDataset(fpath = "./mldata/treasureIsland.txt"):
 	dataset = []
 
-	words = GetWordSequence("./mldata/treasureIsland.txt")
+	words = GetWordSequence(fpath)
 	charMap = dict()
 	i = 0
 	for c in string.ascii_lowercase:
@@ -72,15 +69,15 @@ def BuildSequenceDataset():
 	charMap['$'] = i + 1
 	print("num classes: {}  num sequences: {}".format(len(charMap.keys()), len(words)))
 	numClasses = len(charMap.keys())
-	startVector = np.zeros(shape=(numClasses,1), dtype=np.int32)
+	startVector = np.zeros(shape=(numClasses,1), dtype=numpy_default_dtype)
 	startVector[charMap['^'],0] = 1
-	endVector = np.zeros(shape=(numClasses,1), dtype=np.int32)
+	endVector = np.zeros(shape=(numClasses,1), dtype=numpy_default_dtype)
 	endVector[charMap['$'],0] = 1
 	for word in words:#[10000:50000]: #word sequence can be truncated, since full text might be explosive
 		sequence = [startVector]
 		#get the raw sequence of one-hot vectors representing characters
 		for c in word:
-			vec = np.zeros(shape=(numClasses,1),dtype=np.int32)
+			vec = np.zeros(shape=(numClasses,1),dtype=numpy_default_dtype)
 			vec[charMap[c],0] = 1
 			sequence.append(vec)
 		sequence.append(endVector)
@@ -92,9 +89,10 @@ def BuildSequenceDataset():
 
 	return dataset, charMap
 
-#data generation helpers
-def convertTextToDataset(textPath):
-	pass
+def convertToTensorData(dataset):
+	print("Converting numpy data items to tensors...")
+	dataset = [[(torch.from_numpy(x.T).to(torch.float32), torch.from_numpy(y.T).to(torch.float32)) for x,y in sequence] for sequence in dataset]
+	return dataset
 
 #Static helper class. All these functions are vector-valued.
 class Neuron(object):
@@ -180,7 +178,7 @@ class BPTT_Network(object):
 		#This is a gotcha, and is not well-defined yet. How is the initial state characterized, as an input? It acts as both input and parameter (to be learnt).
 		#Clever solutions might include backpropagating one step prior to every training sequence to an initial input of uniform inputs (x = all ones), or similar hacks.
 		#setup the initial state; note that this is learnt, and retained across predictions/training epochs, since it signifies the initial distribution before any input is received
-		self._initialState = np.zeros(shape=(nHiddenUnits,1), dtype=dtype)
+		self._initialState = np.zeros(shape=(nHiddenUnits,1), dtype=numpy_default_dtype)
 
 	def InitializeWeights(self, wShape, vShape, uShape, method="random"):
 		if method == "random":
@@ -188,19 +186,19 @@ class BPTT_Network(object):
 			self._V = np.random.rand(vShape[0], vShape[1]).astype(dtype)
 			self._U = np.random.rand(uShape[0], uShape[1]).astype(dtype)
 		elif method == "zeros":
-			self._W = np.zeros(shape=wShape, dtype=dtype)
-			self._V = np.zeros(shape=vShape, dtype=dtype)
-			self._U = np.zeros(shape=uShape, dtype=dtype)
+			self._W = np.zeros(shape=wShape, dtype=numpy_default_dtype)
+			self._V = np.zeros(shape=vShape, dtype=numpy_default_dtype)
+			self._U = np.zeros(shape=uShape, dtype=numpy_default_dtype)
 		elif method == "ones":
-			self._W = np.ones(shape=wShape, dtype=dtype)
-			self._V = np.ones(shape=vShape, dtype=dtype)
-			self._U = np.ones(shape=uShape, dtype=dtype)
+			self._W = np.ones(shape=wShape, dtype=numpy_default_dtype)
+			self._V = np.ones(shape=vShape, dtype=numpy_default_dtype)
+			self._U = np.ones(shape=uShape, dtype=numpy_default_dtype)
 
 		outputDim = wShape[0]
 		hiddenDim = wShape[1] 
 		#set the biases to vectors of ones
-		self._outputBiases = np.ones(shape=(outputDim,1), dtype=dtype) #output layer biases; there are as many of these as output classes
-		self._inputBiases  = np.ones(shape=(hiddenDim,1), dtype=dtype)
+		self._outputBiases = np.ones(shape=(outputDim,1), dtype=numpy_default_dtype) #output layer biases; there are as many of these as output classes
+		self._inputBiases  = np.ones(shape=(hiddenDim,1), dtype=numpy_default_dtype)
 
 	def SetLossFunction(self, lossFunction):
 		if lossFunction == "SSE":
@@ -432,25 +430,25 @@ def bptt(self, x, y):
 	"""
 	def Train(self, dataset, maxEpochs=1000, miniBatchSize=4, bpStepLimit=4, clipGrad=False, momentum=0.0001, saveMinWeights=True):
 		losses = []
-		dCdW = np.zeros(shape=self._W.shape, dtype=dtype)
-		dCdV = np.zeros(shape=self._V.shape, dtype=dtype)
-		dCdU = np.zeros(shape=self._U.shape, dtype=dtype)
-		dCbI = np.zeros(shape=self._inputBiases.shape, dtype=dtype)
-		dCbO = np.zeros(shape=self._outputBiases.shape, dtype=dtype)
+		dCdW = np.zeros(shape=self._W.shape, dtype=numpy_default_dtype)
+		dCdV = np.zeros(shape=self._V.shape, dtype=numpy_default_dtype)
+		dCdU = np.zeros(shape=self._U.shape, dtype=numpy_default_dtype)
+		dCbI = np.zeros(shape=self._inputBiases.shape, dtype=numpy_default_dtype)
+		dCbO = np.zeros(shape=self._outputBiases.shape, dtype=numpy_default_dtype)
 
 		#momentum based deltas
-		dCdW_prev = np.zeros(shape=self._W.shape, dtype=dtype)
-		dCdV_prev = np.zeros(shape=self._V.shape, dtype=dtype)
-		dCdU_prev = np.zeros(shape=self._U.shape, dtype=dtype)
-		dCbI_prev = np.zeros(shape=self._inputBiases.shape, dtype=dtype)
-		dCbO_prev = np.zeros(shape=self._outputBiases.shape, dtype=dtype)
+		dCdW_prev = np.zeros(shape=self._W.shape, dtype=numpy_default_dtype)
+		dCdV_prev = np.zeros(shape=self._V.shape, dtype=numpy_default_dtype)
+		dCdU_prev = np.zeros(shape=self._U.shape, dtype=numpy_default_dtype)
+		dCbI_prev = np.zeros(shape=self._inputBiases.shape, dtype=numpy_default_dtype)
+		dCbO_prev = np.zeros(shape=self._outputBiases.shape, dtype=numpy_default_dtype)
 
 		#under construction; for saving the weights at the minimum error during training (hackish, probably not worth it)
-		W_min = np.zeros(shape=self._W.shape, dtype=dtype)
-		V_min = np.zeros(shape=self._V.shape, dtype=dtype)
-		U_min = np.zeros(shape=self._U.shape, dtype=dtype)
-		Bi_min = np.zeros(shape=self._inputBiases.shape, dtype=dtype)
-		Bo_min = np.zeros(shape=self._outputBiases.shape, dtype=dtype)
+		W_min = np.zeros(shape=self._W.shape, dtype=numpy_default_dtype)
+		V_min = np.zeros(shape=self._V.shape, dtype=numpy_default_dtype)
+		U_min = np.zeros(shape=self._U.shape, dtype=numpy_default_dtype)
+		Bi_min = np.zeros(shape=self._inputBiases.shape, dtype=numpy_default_dtype)
+		Bo_min = np.zeros(shape=self._outputBiases.shape, dtype=numpy_default_dtype)
 
 		count = 0
 		random.shuffle(dataset)
@@ -644,16 +642,80 @@ def main():
 	saveMinWeights = True
 	bpStepLimit = 3
 
+	"""
 	print("TODO: Implement sigmoid and tanh scaling to prevent over-saturation; see Simon Haykin's backprop implementation notes")
 	print("TOOD: Implement training/test evaluation methods, beyond the cost function. Evaluate the probability of sequences in train/test data.")
 	net = BPTT_Network(eta, xDim, hiddenUnits, yDim, lossFunction="SSE", outputActivation="SOFTMAX", hiddenActivation="SIGMOID")
-
-	#Train(self, dataset, maxEpochs=1000, miniBatchSize=4, clipGrad=False, momentum=0.0001, saveMinWeights=True):
+	#train the model
 	net.Train(dataset, maxEpochs, miniBatchSize, bpStepLimit=bpStepLimit, clipGrad=clipGrad, momentum=momentum, saveMinWeights=saveMinWeights)
 	print("Stochastic sampling: ")
 	net.Generate(reverseEncoding, stochastic=True)
 	print("Max sampling (expect cycles/repetition): ")
 	net.Generate(reverseEncoding, stochastic=False)
+	"""
+
+	"""
+	Torch's built-in Elman rnn is a snap:
+		>>> rnn = nn.RNN(10, 20, 2)
+		>>> input = torch.randn(5, 3, 10)
+		>>> h0 = torch.randn(2, 3, 20)
+		>>> output, hn = rnn(input, h0)
+	"""
+
+	torchEta = 1E-5
+	#convert the dataset to tensor form for pytorch
+	dataset = convertToTensorData(dataset)
+	#define the negative log-likelihood loss function
+	criterion = torch.nn.NLLLoss()
+
+	"""
+	This is just a working example of a torch BPTT network; it is far from correct yet. Namely, torch prefers
+	mini batches, and this is implementing online learning, updating params at every time step t in every
+	training sequence.
+	"""
+	ct = 0
+	rnn = DiscreteSymbolRNN(xdim=xDim, hdim=hiddenUnits, ydim=xDim)
+	#train over sequences, one at a time, updating weights at every time step t;
+	for sequence in dataset:
+		ct +=  1
+		print("Seq {} of {}".format(ct, len(dataset)))
+		for i in range(len(sequence)):
+			#train for one step, [0:t]
+			hidden = rnn.initHiddenState()
+			rnn.zero_grad()
+			for j in range(i+1):
+				x_t = sequence[j][0]
+				output, hidden = rnn(x_t, hidden)
+
+			y_target = sequence[j][1]
+			#print("OUT: {} max {}  {}".format(output.dtype, y_target.argmax(), y_target.dtype))
+			#print("Y_TARGET: {} {}  {}  {}".format(y_target, y_target.dtype, y_target.argmax(), y_target.argmax().dtype))
+			loss = criterion(output, torch.tensor([y_target.argmax()], dtype=torch.long))
+			loss.backward()
+
+		# Add parameters' gradients to their values, multiplied by learning rate
+		for p in rnn.parameters():
+			p.data.add_(-torchEta, p.grad.data)
+
+		#print("OUT {}\n Item {}".format(output,loss.item()))
+
+	"""
+	rnn = torch.nn.RNN(input_size=xDim, hidden_size=hiddenUnits, num_layers=1, nonlinearity='tanh', bias=True)
+	#hdim = 128
+	#rnn = RNN(n_letters, n_hidden, n_categories)
+	#convert the dataset to tensor form for pytorch
+	#input = torch.randn(5, 3, 10)   <-- input to rnn, eg 'rnn(input, h0)' is of size (seq_len x batch x input_size)
+	while True:
+		#stochastically build a mini-batch of examples
+		batchSize = 3
+		batch = [dataset[random.randint(0,len(dataset)-1)] for i in range(batchSize)]
+		x_in = [[pair[0] for pair in seq] for seq in batch]
+		y_out = [[pair[1] for pair in seq] for seq in batch]
+	"""
+
+
+
+
 
 
 if __name__ == "__main__":

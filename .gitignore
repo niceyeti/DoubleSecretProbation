@@ -11,6 +11,7 @@ practice/list
 practice/tree
 practice/tree2
 
+data/
 mldata/mnist_train.csv
 mldata/mnist_test.csv
 
