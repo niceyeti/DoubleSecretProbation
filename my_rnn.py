@@ -54,25 +54,27 @@ class DiscreteSymbolRNN(torch.nn.Module):
 
 		#generate 20 starting tensors
 		randomTensors = [torch.zeros(1,self.xdim) for i in range(20)]
-		for t, i in enumerate(randomTensors):
-			t[ random.randint(0,len(randomTensors)-1) - 1 ] = 1.0
+		for i, t in enumerate(randomTensors):
+			t[0, random.randint(0,t.shape[1]-1) ] = 1.0
 
 		for x_0 in randomTensors:
 			hidden = self.initHiddenState()
+			output, hidden = self(x_0, hidden)
 
-			#run a few time steps
+			#run a network few time steps
 			for i in range(0,10):
-				output, hidden = self(x_0, hidden)
 				#stochastically select one of the outputs based on the distribution of the output
 				r_float = random.randint(0,999) / 1000.0 #select number from 0-1.0
 				r_index = 0
 				r_sum = 0.0
 				for y_i in range(self.ydim):
-					r_sum += output[y_i]
+					r_sum += output[0,y_i]
 					r_index = y_i
 					if r_sum > r_float:
 						break
 				print(symbolRevMap[r_index], end="")
+				#tick one step
+				output, hidden = self(output, hidden)
 			print("\n",end="")
 
 	def train(self, dataset):
@@ -96,7 +98,7 @@ class DiscreteSymbolRNN(torch.nn.Module):
 		losses = []
 		#update weights over a batch of 30 sequences (words)
 		batchSize = 30
-		epochs = int(len(dataset) / batchSize)
+		epochs = int(len(dataset) / (batchSize* 2))
 
 		#randomize the dataset
 		random.shuffle(dataset)

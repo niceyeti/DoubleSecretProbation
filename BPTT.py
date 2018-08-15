@@ -667,7 +667,7 @@ def main():
 	dataset = convertToTensorData(dataset)
 	rnn = DiscreteSymbolRNN(xDim, hiddenUnits, yDim)
 	rnn.train(dataset)
-	rnn.generate()
+	rnn.generate(reverseEncoding)
 
 	"""
 	rnn = torch.nn.RNN(input_size=xDim, hidden_size=hiddenUnits, num_layers=1, nonlinearity='tanh', bias=True)
