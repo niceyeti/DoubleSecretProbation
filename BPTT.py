@@ -663,70 +663,11 @@ def main():
 		>>> output, hn = rnn(input, h0)
 	"""
 
-	torchEta = 1E-4
 	#convert the dataset to tensor form for pytorch
 	dataset = convertToTensorData(dataset)
-	#define the negative log-likelihood loss function
-	criterion = torch.nn.NLLLoss()
-
-	"""
-	This is just a working example of a torch BPTT network; it is far from correct yet. Namely, torch prefers
-	mini batches, and this is implementing online learning, updating params at every time step t in every
-	training sequence.
-
-	According to torch docs it might be possible to leave this is in its explicit example/update form,
-	but instead simply accumulate the gradient updates over multiple time steps, or multiple sequences,
-	by simply choosing when to zero the gradient with rnn.zero_grad().
-	"""
-	ct = 0
-	losses = []
-	batchSize = 30
-	rnn = DiscreteSymbolRNN(xdim=xDim, hdim=hiddenUnits, ydim=xDim)
-	epochs = int(len(dataset) / batchSize)
-	#epochs = int(10000/20)
-
-	#randomize the dataset
-	random.shuffle(dataset)
-
-	for epoch in range(epochs):
-		#zero the gradients before each training batch
-		rnn.zero_grad()
-		#accumulate gradients over one batch
-		for _ in range(batchSize):
-			#select a random example (this is very inefficient; better to call shuffle(dataset) before training to randomize)
-			sequence = dataset[ ct % len(dataset) ]
-			ct +=  1
-			batchLoss = 0.0
-			if ct % 1000 == 999:
-				print("\rSeq {} of {}       ".format(ct, len(dataset)), end="")
-
-			for i in range(len(sequence)):
-				#train for one step, [0:t]
-				hidden = rnn.initHiddenState()
-				for j in range(i+1):
-					x_t = sequence[j][0]
-					output, hidden = rnn(x_t, hidden)
-
-				y_target = sequence[j][1]
-				loss = criterion(output, torch.tensor([y_target.argmax()], dtype=torch.long))
-				loss.backward()
-				batchLoss += loss.item()
-
-			losses.append(batchLoss/float(len(sequence)))
-		
-		# After batch completion, add parameters' gradients to their values, multiplied by learning rate, for this single sequence
-		for p in rnn.parameters():
-			p.data.add_(-torchEta, p.grad.data)
-
-		#print("OUT {}\n Item {}".format(output,loss.item()))
-
-	k = 50
-	losses = [sum(losses[i:i+k])/float(k) for i in range(len(losses)-k)]
-
-	xs = [i for i in range(len(losses))]
-	plt.plot(xs,losses)
-	plt.show()
-
+	rnn = DiscreteSymbolRNN(xDim, hiddenUnits, yDim)
+	rnn.train(dataset)
+	rnn.generate()
 
 	"""
 	rnn = torch.nn.RNN(input_size=xDim, hidden_size=hiddenUnits, num_layers=1, nonlinearity='tanh', bias=True)
