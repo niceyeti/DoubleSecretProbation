@@ -8,10 +8,6 @@ Input data:
 	Input data are lists of lists, [(X1,y1) ... (Xn, yn)] where X may be a matrix or vector (the distinction isn't strongly relevant,
 	since a matrxi can be converted row-wise into a vector), and the output is a one-hot vector. The one-hot constraints
 	on input/output are not strong. The classical BPTT architecture applies to many other probs.
-
-
-
-
 """
 
 import numpy as np
@@ -22,7 +18,7 @@ import random
 import torch
 
 import matplotlib.pyplot as plt
-from my_rnn import *
+from torch_rnn import *
 
 #Best to stick with float; torch is more float32 friendly according to highly reliable online comments
 numpy_default_dtype=np.float32
@@ -183,9 +179,9 @@ class BPTT_Network(object):
 
 	def InitializeWeights(self, wShape, vShape, uShape, method="random"):
 		if method == "random":
-			self._W = np.random.rand(wShape[0], wShape[1]).astype(dtype)
-			self._V = np.random.rand(vShape[0], vShape[1]).astype(dtype)
-			self._U = np.random.rand(uShape[0], uShape[1]).astype(dtype)
+			self._W = np.random.rand(wShape[0], wShape[1]).astype(numpy_default_dtype)
+			self._V = np.random.rand(vShape[0], vShape[1]).astype(numpy_default_dtype)
+			self._U = np.random.rand(uShape[0], uShape[1]).astype(numpy_default_dtype)
 		elif method == "zeros":
 			self._W = np.zeros(shape=wShape, dtype=numpy_default_dtype)
 			self._V = np.zeros(shape=vShape, dtype=numpy_default_dtype)
@@ -375,39 +371,6 @@ class BPTT_Network(object):
 		#TODO: Map this to a specific loss function
 		return y_target - y_predicted #SSE and softmax error
 
-	"""
-	This function is not intended to be clean or compact until the network has been proven. Even then I prefer
-	to have all the training step enumerated explicitly in one place.
-
-	@dataset: A list of lists of (x,y) pairs, where both x and y are real-valued vectors. Hence each
-			training example is a sequence of (x,y) pairs.
-
-def bptt(self, x, y):
-    T = len(y)
-    # Perform forward propagation
-    o, s = self.forward_propagation(x)
-    # We accumulate the gradients in these variables
-    dLdU = np.zeros(self.U.shape)
-    dLdV = np.zeros(self.V.shape)
-    dLdW = np.zeros(self.W.shape)
-    delta_o = o
-    delta_o[np.arange(len(y)), y] -= 1.
-    # For each output backwards...
-    for t in np.arange(T)[::-1]:     #The slice operator [::-1] reverses the ndarray
-        dLdV += np.outer(delta_o[t], s[t].T)
-        # Initial delta calculation: dL/dz
-        delta_t = self.V.T.dot(delta_o[t]) * (1 - (s[t] ** 2))
-        # Backpropagation through time (for at most self.bptt_truncate steps)
-        for bptt_step in np.arange(max(0, t-self.bptt_truncate), t+1)[::-1]:
-            # print "Backpropagation step t=%d bptt step=%d " % (t, bptt_step)
-            # Add to gradients at each previous step
-            dLdW += np.outer(delta_t, s[bptt_step-1])              
-            dLdU[:,x[bptt_step]] += delta_t
-            # Update delta for next step dL/dz at t-1
-            delta_t = self.W.T.dot(delta_t) * (1 - s[bptt_step-1] ** 2)
-    return [dLdU, dLdV, dLdW]
-	"""
-
 	def getMinibatch(self, dataset, k):
 		"""
 		Given a dataset as a sequence of (X,Y), select k examples at random and return as sequence.
@@ -545,6 +508,13 @@ def bptt(self, x, y):
 			self._V = V_min[:]
 			self._inputBiases = Bi_min[:]
 
+		#plot the losses
+		k = 100
+		avgLoss = [sum(losses[i:i+k])/float(k) for i in range(len(losses)-k)]
+		xs = [i for i in range(len(avgLoss))]
+		plt.plot(xs, avgLoss)
+		plt.show()
+
 """
 			for i, xyPair in enumerate(sequence):
 				x = xyPair[0]
@@ -573,50 +543,6 @@ def bptt(self, x, y):
 				self._outputDeltas.append(outputDeltas)
 """
 
-"""
-From wikipedia. 'g' refers to the final output layer to some y[t], f to each hidden state.
-
-Back_Propagation_Through_Time(a, y)   // a[t] is the input at time t. y[t] is the output
-    Unfold the network to contain k instances of f
-    do until stopping criteria is met:
-        x = the zero-magnitude vector;// x is the current context
-        for t from 0 to n - k         // t is time. n is the length of the training sequence
-            Set the network inputs to x, a[t], a[t+1], ..., a[t+k-1]
-            p = forward-propagate the inputs over the whole unfolded network
-            e = y[t+k] - p;           // error = target - prediction
-            Back-propagate the error, e, back across the whole unfolded network
-            Sum the weight changes in the k instances of f together.
-            Update all the weights in f and g.
-            x = f(x, a[t]);           // compute the context for the next time-step
-
-http://www.wildml.com/2015/10/recurrent-neural-networks-tutorial-part-3-backpropagation-through-time-and-vanishing-gradients/
-
-def bptt(self, x, y):
-    T = len(y)
-    # Perform forward propagation
-    o, s = self.forward_propagation(x)
-    # We accumulate the gradients in these variables
-    dLdU = np.zeros(self.U.shape)
-    dLdV = np.zeros(self.V.shape)
-    dLdW = np.zeros(self.W.shape)
-    delta_o = o
-    delta_o[np.arange(len(y)), y] -= 1.
-    # For each output backwards...
-    for t in np.arange(T)[::-1]:     #The slice operator [::-1] reverses the ndarray
-        dLdV += np.outer(delta_o[t], s[t].T)
-        # Initial delta calculation: dL/dz
-        delta_t = self.V.T.dot(delta_o[t]) * (1 - (s[t] ** 2))
-        # Backpropagation through time (for at most self.bptt_truncate steps)
-        for bptt_step in np.arange(max(0, t-self.bptt_truncate), t+1)[::-1]:
-            # print "Backpropagation step t=%d bptt step=%d " % (t, bptt_step)
-            # Add to gradients at each previous step
-            dLdW += np.outer(delta_t, s[bptt_step-1])              
-            dLdU[:,x[bptt_step]] += delta_t
-            # Update delta for next step dL/dz at t-1
-            delta_t = self.W.T.dot(delta_t) * (1 - s[bptt_step-1] ** 2)
-    return [dLdU, dLdV, dLdW]
-"""
-
 def main():
 	dataset, encodingMap = BuildSequenceDataset()
 	reverseEncoding = dict([(encodingMap[key],key) for key in encodingMap.keys()])
@@ -634,7 +560,7 @@ def main():
 	print("SHAPE: {} {}".format(dataset[0][0][0].shape, dataset[0][0][1].shape))
 	xDim = dataset[0][0][0].shape[0]
 	yDim = dataset[0][0][1].shape[0]
-	eta = 0.00002
+	eta = 2E-5
 	hiddenUnits = 64
 	maxEpochs = 400
 	miniBatchSize = 100
@@ -655,18 +581,11 @@ def main():
 	net.Generate(reverseEncoding, stochastic=False)
 	"""
 
-	"""
-	Torch's built-in Elman rnn is a snap:
-		>>> rnn = nn.RNN(10, 20, 2)
-		>>> input = torch.randn(5, 3, 10)
-		>>> h0 = torch.randn(2, 3, 20)
-		>>> output, hn = rnn(input, h0)
-	"""
-
+	torchEta = 5E-5
 	#convert the dataset to tensor form for pytorch
 	dataset = convertToTensorData(dataset)
 	rnn = DiscreteSymbolRNN(xDim, hiddenUnits, yDim)
-	rnn.train(dataset)
+	rnn.train(dataset, epochs=1, batchSize=100, torchEta=torchEta, bpttStepLimit=bpStepLimit)
 	rnn.generate(reverseEncoding)
 
 	"""
@@ -682,9 +601,6 @@ def main():
 		x_in = [[pair[0] for pair in seq] for seq in batch]
 		y_out = [[pair[1] for pair in seq] for seq in batch]
 	"""
-
-
-
 
 
 

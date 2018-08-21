@@ -40,18 +40,17 @@ class DiscreteSymbolRNN(torch.nn.Module):
 
 		return output, hidden
 
-	def initHiddenState(self, dtype=torch_default_dtype):
+	def getInitialHiddenState(self, dtype=torch_default_dtype):
 		#Initialize hidden state to 1xhdim vector of zeroes.
 		return torch.zeros(1, self.hdim, dtype=dtype)
 
 	def generate(self, symbolRevMap):
 		"""
 		Just for qualitative fun: generate random input, then stochastically
-		sample from the output .
+		sample from the output to observe the qualities of the output language.
 
 		symbolRevMap: A reverse map of (index -> symbol), for mapping network-output indices back to discrete symbols, e.g., 'a'-> 0, 'b' -> 1, etc
 		"""
-
 		#generate 20 starting tensors
 		randomTensors = [torch.zeros(1,self.xdim) for i in range(20)]
 		for i, t in enumerate(randomTensors):
@@ -59,7 +58,7 @@ class DiscreteSymbolRNN(torch.nn.Module):
 
 		for x_0 in randomTensors:
 			#run initial step
-			output, hidden = self(x_0, self.initHiddenState())
+			output, hidden = self(x_0, self.getInitialHiddenState())
 
 			#run network few time steps
 			for i in range(0,10):
@@ -78,7 +77,7 @@ class DiscreteSymbolRNN(torch.nn.Module):
 				output, hidden = self(output, hidden)
 			print("\n",end="")
 
-	def train(self, dataset):
+	def train(self, dataset, epochs, batchSize=30, torchEta=5E-5, bpttStepLimit=5):
 		"""
 		This is just a working example of a torch BPTT network; it is far from correct yet.
 		The hyperparameters and training regime are not optimized or even verified, other than
@@ -90,16 +89,19 @@ class DiscreteSymbolRNN(torch.nn.Module):
 
 		@dataset: A list of lists, where each list represents one training sequence and consists of (x,y) pairs
 				  of one-hot encoded vectors.
+
+		@epochs: Number of training epochs. Internally this is calculated as n/@batchSize, where n=|dataset|
+		@batchSize: Number of sequences per batch to train over before backpropagating the sum gradients.
+		@torchEta: Learning rate
+		@bpttStepLimit: the number of timesteps over which to backpropagate before truncating; some papers are
+				quite generous with this parameter (steps=30 or so), despite possibility of gradient issues.
 		"""
 
 		#define the negative log-likelihood loss function
 		criterion = torch.nn.NLLLoss()
 		ct = 0
-		torchEta = 5E-5 # 'seemed' to work well
 		losses = []
-		#update weights over a batch of 30 sequences (words)
-		batchSize = 30
-		epochs = int(len(dataset) / batchSize)
+		epochs = epochs * int(len(dataset) / batchSize)
 
 		#randomize the dataset
 		random.shuffle(dataset)
@@ -116,10 +118,35 @@ class DiscreteSymbolRNN(torch.nn.Module):
 				if ct % 1000 == 999:
 					print("\rSeq {} of {}       ".format(ct, len(dataset)), end="")
 
+				"""
+				TODO: I doubt that this training method is correct, given retain_graph=True, which was just a bandaid for
+				not yet know how to implement bpttStepLimit with torch. The implementation could also likely be much faster.
+				"""
+
+				outputs = []
+				#forward prop and accumulate gradients over entire sequence
+				hidden = self.getInitialHiddenState()
+				for i in range(len(sequence)):
+					x_t = sequence[i][0]
+					output, hidden = self(x_t, hidden)
+					outputs.append(output)
+
+				for i in range(len(sequence)):
+					y_target = sequence[i][1]
+					loss = criterion(outputs[i], torch.tensor([y_target.argmax()], dtype=torch.long))
+					loss.backward(retain_graph=True)
+					batchLoss += loss.item()
+
+				losses.append(batchLoss/float(len(sequence)))
+
+
+				"""
+				This was a wasteful use of a double loop over the training sequence, but pytorch could support bptt step limit in other ways.
+				The line ' range(max(i-bpttStepLimit,0), i+1)' is not a correct implementation of bpttStepLimit; need to use requires_grad=false somehow instead.
 				for i in range(len(sequence)):
 					#train for one step, [0:t]
-					hidden = self.initHiddenState()
-					for j in range(i+1):
+					hidden = self.getInitialHiddenState()
+					for j in range(max(i-bpttStepLimit,0), i+1):
 						x_t = sequence[j][0]
 						output, hidden = self(x_t, hidden)
 
@@ -129,16 +156,17 @@ class DiscreteSymbolRNN(torch.nn.Module):
 					batchLoss += loss.item()
 
 				losses.append(batchLoss/float(len(sequence)))
-		
+				"""		
+
 			# After batch completion, add parameters' gradients to their values, multiplied by learning rate, for this single sequence
 			for p in self.parameters():
 				p.data.add_(-torchEta, p.grad.data)
 
 			#print("OUT {}\n Item {}".format(output,loss.item()))
 
+		#plot the losses
 		k = 100
 		losses = [sum(losses[i:i+k])/float(k) for i in range(len(losses)-k)]
-
 		xs = [i for i in range(len(losses))]
 		plt.plot(xs,losses)
 		plt.show()
