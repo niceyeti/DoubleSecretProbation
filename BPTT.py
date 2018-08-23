@@ -569,7 +569,7 @@ def main():
 	saveMinWeights = True
 	bpStepLimit = 3
 
-	
+	"""
 	print("TODO: Implement sigmoid and tanh scaling to prevent over-saturation; see Simon Haykin's backprop implementation notes")
 	print("TOOD: Implement training/test evaluation methods, beyond the cost function. Evaluate the probability of sequences in train/test data.")
 	net = BPTT_Network(eta, xDim, hiddenUnits, yDim, lossFunction="SSE", outputActivation="SOFTMAX", hiddenActivation="SIGMOID")
@@ -579,13 +579,13 @@ def main():
 	net.Generate(reverseEncoding, stochastic=True)
 	print("Max sampling (expect cycles/repetition): ")
 	net.Generate(reverseEncoding, stochastic=False)
-	
+	"""
 
 	torchEta = 5E-5
 	#convert the dataset to tensor form for pytorch
 	dataset = convertToTensorData(dataset)
 	rnn = DiscreteSymbolRNN(xDim, hiddenUnits, yDim)
-	rnn.train(dataset, epochs=1, batchSize=100, torchEta=torchEta, bpttStepLimit=bpStepLimit)
+	rnn.train(dataset, epochs=4, batchSize=100, torchEta=torchEta, bpttStepLimit=bpStepLimit)
 	rnn.generate(reverseEncoding)
 
 	"""
