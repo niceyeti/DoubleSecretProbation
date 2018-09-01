@@ -15,3 +15,5 @@ data/
 mldata/mnist_train.csv
 mldata/mnist_test.csv
 
+*fbData.py
+*doc2vec_model
