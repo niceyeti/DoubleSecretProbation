@@ -20,3 +20,7 @@ mldata/mnist_test.csv
 *model.csv
 
 *model.d2v
+*model_wapo.csv
+
+*fbPolitico.py
+*fbWapo.py
