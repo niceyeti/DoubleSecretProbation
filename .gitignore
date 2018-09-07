@@ -17,7 +17,7 @@ mldata/mnist_test.csv
 
 *fbData.py
 *doc2vec_model
-*model.csv
+Word2Vec/model.csv
 
 *model.d2v
 *model_wapo.csv
