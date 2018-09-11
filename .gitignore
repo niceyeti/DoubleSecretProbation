@@ -19,6 +19,9 @@ mldata/mnist_test.csv
 *doc2vec_model
 Word2Vec/model.csv
 
+*fbWapo*
+*.npy
+
 *model.d2v
 *model_wapo.csv
 
