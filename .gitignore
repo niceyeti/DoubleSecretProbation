@@ -20,6 +20,7 @@ mldata/mnist_test.csv
 Word2Vec/model.csv
 
 *fbWapo*
+*temp.csv
 *.npy
 
 *model.d2v
