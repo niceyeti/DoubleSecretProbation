@@ -356,7 +356,7 @@ class BPTT_Network(object):
 	Utility for resetting network to its initial state. It still isn't clear what that initial
 	state of the network should be; its a subtle gotcha missing from most lit.
 	"""
-	def _reset(self):
+	def _resetNetwork(self):
 		self._Ss = [self._initialState]
 		self._Xs = []
 		self._Ys = []
@@ -446,7 +446,7 @@ class BPTT_Network(object):
 
 					print("Example batch count {} avgLoss: {}  minLoss: {}".format(count,avgLoss,minLoss))
 					#print("Example count {} avgLoss: {}  minLoss: {}  {}".format(count,avgLoss,minLoss, str(self._Ys[-1].T)))
-				self._reset()
+				self._resetNetwork()
 
 				#clipping the start/end of line characters input/outputs can be done here
 				xs = [xyPair[0] for xyPair in sequence]
@@ -455,6 +455,7 @@ class BPTT_Network(object):
 				#forward propagate entire sequence, storing info needed for weight updates: outputs and states at each time step t
 				self.ForwardPropagate(xs)
 
+				dhNext = np.zeros_like(self._SS[-1])
 				for t in reversed(range(1,t_end)):
 					#calculate output error at step t, from which to backprop
 					y_target = sequence[t][1]
@@ -467,19 +468,23 @@ class BPTT_Network(object):
 					dCdW += np.outer(e_output, self._Ss[t])
 					#biases updated directly from e_output for output biases
 					dCbO += e_output
-					#get the initial deltas at time t, which depend on W (instead of U, like the recursive deltas)
-					#print("Eout dim: {}  y_star {} y_hat {}  ss[t] {}".format(e_output.shape, y_target.shape, self._Ys[t].shape, self._Ss[t].shape))
-					deltas = self._hiddenPrime(self._Ss[t]) * self._W.T.dot(e_output)  # |s| x |y| * |y| x 1 = |s| x 1 vector
-					#Calculate the hidden layer deltas, regressing backward from timestep t, up to @bpStepLimit steps
-					for i in range(0, min(bpStepLimit,t+1)):  # eg, [4,5,6] for t==7 bpStepLimit==3. 
-						if clipGrad:
-							#clip the gradients (OPTIONAL)
-							deltas = np.clip(deltas, -1.0, 1.0)
-						dCbI += deltas
-						dCdV += np.outer(deltas, self._Xs[t-i])
-						dCdU += np.outer(deltas, self._Ss[t-i-1])
-						deltas = self._hiddenPrime(self._Ss[t-i-1]) * self._U.dot(deltas)
-						steps += 1
+					#get stationary output layer error wrt hidden layer
+					dO = self._Ss[t] * self._W.T.dot(e_output)
+					#get the (recursive) hidden layer error wrt output layer and t+1 hidden layer error
+					hPrime_t = self._hiddenPrime(self._Ss[t])
+					dH_t = hPrime_t * self._W.T.dot(e_output) * dhNext + dO
+					if clipGrad:
+						#clip the gradients (OPTIONAL)
+						dH_t = np.clip(dH_t, -4.0, 4.0)
+
+					#get the previous state; either t-1 state for t > 0, or the initial state distribution
+					hPrev = self._Ss[t-1] if t > 0 else self._initialState
+					#update the input and hidden weight matrices
+					delta_t = hPrime_t * dH_t
+					dCdU += delta_t * hPrev
+					dCdV += delta_t * self._Xs[t]
+					dCbI += delta_t
+					dhNext = dH_t
 
 			#apply the cumulative weight changes; the latter incorporates momentum
 			if not useMomentum:
