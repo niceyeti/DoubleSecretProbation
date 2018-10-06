@@ -1,99 +1,8 @@
-"""
-An implementation of BPTT, because I like the math, but could only understand it if i implemented it.
-
-The first crack at this is using discrete inputs and outputs for letter-prediction (26 classes and space).
-Inputs are 0/1 reals, and outputs are reals in [0,1] which attempt to learn one-hot 0/1 targets.
-
-Input data:
-	Input data are lists of lists, [(X1,y1) ... (Xn, yn)] where X may be a matrix or vector (the distinction isn't strongly relevant,
-	since a matrxi can be converted row-wise into a vector), and the output is a one-hot vector. The one-hot constraints
-	on input/output are not strong. The classical BPTT architecture applies to many other probs.
-"""
-
 import numpy as np
-import string
-import re
-import sys
 import random
-import torch
-
 import matplotlib.pyplot as plt
-from torch_rnn import *
 
-#Best to stick with float; torch is more float32 friendly according to highly reliable online comments
 numpy_default_dtype=np.float32
-
-"""
-Returns all words in some file, with all non-alphabetic characters removed, and lowercased.
-"""
-def GetSentenceSequence(fpath):
-	words = []
-	with open(fpath,"r") as ifile:
-		#read entire character sequence of file
-		novel = ifile.read().replace("\r"," ").replace("\t"," ").replace("\n"," ")
-		novel = novel.replace("'","").replace("    "," ").replace("  "," ").replace("  "," ").replace("  "," ").replace("  "," ")
-		sentences = [sentence.strip() for sentence in novel.split(".")]
-		sentences = [re.sub(r"[^a-zA-Z ]", '', sentence).lower() for sentence in sentences]
-		#lots of junk in the beginning, so toss it
-		sentences = [sentence for sentence in sentences[100:] if sentence != " " and len(sentence) > 0]
-		#print(novel)
-	#print(sentences)
-
-	return sentences
-
-"""
-Returns a list of lists of (x,y) numpy vector pairs describing bigram character data: x=c_i, y=c_i_minus_one.
-
-The data consists of character sequences derived from the novel Treasure Island.
-Training sequences consist of the words of this novel, where the entire novel is lowercased,
-punctuation is dropped, and word are tokenized via split(). Pretty simple. It will be neat to see 
-what kind of words such a neural net could generate.
-
-Each sequence consists of a list of numpy one-hot encoded column-vector (shape=(k,1)) pairs. The initial x in 
-every sequence is the start-of-line character '^', and the last y in every sequence is the end-of line character '$'.
-If this is undesired, these input/outputs can just be skipped in training.
-
-@limit: Number of sequences to extract
-"""
-def BuildSequenceDataset(fpath = "./mldata/treasureIsland.txt", limit=1000):
-	dataset = []
-
-	sequences = GetSentenceSequence(fpath)
-	charMap = dict()
-	i = 0
-	for c in string.ascii_lowercase+' ':
-		charMap[c] = i
-		i+=1
-
-	#add beginning and ending special characters to delimit beginning and end of sequences
-	charMap['^'] = i
-	charMap['$'] = i + 1
-	print("num classes: {}  num sequences: {}".format(len(charMap.keys()), len(sequences)))
-	numClasses = len(charMap.keys())
-	startVector = np.zeros(shape=(numClasses,1), dtype=numpy_default_dtype)
-	startVector[charMap['^'],0] = 1
-	endVector = np.zeros(shape=(numClasses,1), dtype=numpy_default_dtype)
-	endVector[charMap['$'],0] = 1
-	for seq in sequences[0:limit]: #word sequence can be truncated, since full text might be explosive
-		sequence = [startVector]
-		#get the raw sequence of one-hot vectors representing characters
-		for c in seq:
-			vec = np.zeros(shape=(numClasses,1),dtype=numpy_default_dtype)
-			vec[charMap[c],0] = 1
-			sequence.append(vec)
-		sequence.append(endVector)
-		#since our input classes are same as outputs, just pair them off-by-one, such that the network learns bigram like distributions: given x-input char, y* is next char
-		xs = [vec for vec in sequence[:-1]]
-		ys = [vec for vec in sequence[1:]]
-		sequence = list(zip(xs,ys))
-		dataset.append(sequence)
-
-	return dataset, charMap
-
-def convertToTensorData(dataset):
-	print("Converting numpy data items to tensors...")
-	dataset = [[(torch.from_numpy(x.T).to(torch.float32), torch.from_numpy(y.T).to(torch.float32)) for x,y in sequence] for sequence in dataset]
-	return dataset
 
 #Static helper class. All these functions are vector-valued.
 class Neuron(object):
@@ -107,7 +16,7 @@ class Neuron(object):
 		return 1 - z_tanh ** 2
 		#return 1 - (Neuron.Tanh(z) ** 2)
 
-	#@z: A vector. Softmax is a vector valued function.
+	#@z: A vector. Softmax is a vector valued function. This is the numerically stable version of softmax
 	@staticmethod
 	def SoftMax(z):
 		e_z = np.exp(z - np.max(z))
@@ -139,7 +48,7 @@ class Neuron(object):
 	def CrossEntropyLoss():
 		pass
 
-class BPTT_Network(object):
+class NumpyRnn(object):
 	"""
 	@eta: learning rate
 	@lossFunction: overall loss function, also setting its derivative function for training: XENT or SSE
@@ -465,6 +374,8 @@ class BPTT_Network(object):
 				ys = [xyPair[1] for xyPair in sequence]
 				#forward propagate entire sequence, storing info needed for weight updates: outputs and states at each time step t
 				self.ForwardPropagate(xs)
+				#calculate all the hidden phi-primes (1-tanh**2)
+				hiddenPrime = [self._hiddenPrime(s)	for s in self._Ss]
 
 				#initialize the last hidden state (after output limit) to zero vector
 				dhNext = h_zeroes
@@ -485,8 +396,10 @@ class BPTT_Network(object):
 					#get stationary output layer error wrt hidden layer
 					dO = self._W.T.dot(e_output)
 					#get the (recursive) hidden layer error wrt output layer and t+1 hidden layer error
-					hPrime_t = self._hiddenPrime(self._Ss[t])
-					dH_t = hPrime_t * (dO + dhNext)
+					dH_t = dO
+					if t < len(ys):
+						dH_t += self._U.T.dot(dhNext) * hiddenPrime[t+1]
+
 					if clipGrad:
 						#clip the gradients (OPTIONAL)
 						dH_t = np.clip(dH_t, -1.0, 1.0)
@@ -494,8 +407,8 @@ class BPTT_Network(object):
 					#get the previous state; either t-1 state for t > 0, or the initial state distribution
 					hPrev = self._Ss[t-1] if t > 0 else self._initialState
 					#update the input and hidden weight matrices
-					dCdU += np.outer(dH_t, hPrev)
-					dCdV += np.outer(dH_t, self._Xs[t])
+					dCdU += np.outer(dH_t, hPrev) * hiddenPrime[t]
+					dCdV += np.outer(dH_t, self._Xs[t]) * hiddenPrime[t]
 					dCbI += dH_t
 					bpSteps += 1
 					if bpSteps > bpStepLimit:
@@ -543,131 +456,4 @@ class BPTT_Network(object):
 		xs = [i for i in range(len(avgLoss))]
 		plt.plot(xs, avgLoss)
 		plt.show()
-
-"""
-			for i, xyPair in enumerate(sequence):
-				x = xyPair[0]
-				y = xyPair[1]
-				#Run feed-forward step
-				#self.Predict(x)
-				self._Xs.append(x)
-				#get the (|s| x 1) state vector s
-				s = self._V * x + self._U * self._Ss[-1] + self._inputBiases
-				#drive signal through the non-linear activation function
-				s = self._hiddenFunction(s)
-				#save this hidden state
-				self._Ss.append(s)
-				#get the (|y| x 1) output vector
-				y_hat = self._W * s.T + self._outputBiases
-				#drive the net signal through the non-linear activation function
-				y_hat = self._outputFunction(y_hat)
-				#save the output state
-				self._Ys.append(y_hat)
-			
-
-				#Network information flow and output stored; now backpropagate error deltas through previous timesteps
-				e = y - y_hat
-				#Get final output layer deltas. #TODO: This could also involve the derivative of the activation, omitted here (technically it is *1.0) because I'm hard-coding for basic softmax with linear input.
-				outputDeltas = e
-				self._outputDeltas.append(outputDeltas)
-"""
-
-def main():
-	eta = 1E-5
-	hiddenUnits = 50
-	maxEpochs = 500
-	miniBatchSize = 1
-	momentum = 1E-5
-	bpStepLimit = 4
-	numSequences = 10000
-	clipGrad = "--clipGrad" in sys.argv
-	saveMinWeights = "--saveMinWeights" in sys.argv
-	for arg in sys.argv:
-		if "-hiddenUnits=" in arg:
-			hiddenUnits = int(arg.split("=")[-1])
-		if "-eta=" in arg:
-			eta = float(arg.split("=")[-1])
-		if "-momentum=" in arg:
-			momentum = float(arg.split("=")[-1])
-		if "-bpStepLimit=" in arg:
-			bpStepLimit = int(arg.split("=")[-1])
-		if "-maxEpochs=" in arg:
-			maxEpochs = int(arg.split("=")[-1])
-		if "-miniBatchSize=" in arg:
-			miniBatchSize = int(arg.split("=")[-1])
-		if "-numSequences" in arg:
-			numSequences = int(arg.split("=")[-1])
-
-	dataset, encodingMap = BuildSequenceDataset(limit=numSequences)
-	reverseEncoding = dict([(encodingMap[key],key) for key in encodingMap.keys()])
-
-	print("First few target outputs:")
-	for sequence in dataset[0:20]:
-		word = ""
-		for x,y in sequence:
-			index = np.argmax(y)
-			word += reverseEncoding[index]
-		print(word)
-
-	print(str(encodingMap))
-	#print(str(dataset[0]))
-	print("SHAPE: {} {}".format(dataset[0][0][0].shape, dataset[0][0][1].shape))
-	xDim = dataset[0][0][0].shape[0]
-	yDim = dataset[0][0][1].shape[0]
-
-
-	print("TODO: Implement sigmoid and tanh scaling to prevent over-saturation; see Simon Haykin's backprop implementation notes")
-	print("TOOD: Implement training/test evaluation methods, beyond the cost function. Evaluate the probability of sequences in train/test data.")
-	print("Building rnn with {} inputs, {} hidden units, {} outputs".format(xDim, hiddenUnits, yDim))
-	net = BPTT_Network(eta, xDim, hiddenUnits, yDim, lossFunction="SSE", outputActivation="SOFTMAX", hiddenActivation="TANH")
-	#train the model
-	net.Train(dataset, maxEpochs, miniBatchSize, bpStepLimit=bpStepLimit, clipGrad=clipGrad, momentum=momentum, saveMinWeights=saveMinWeights)
-	print("Stochastic sampling: ")
-	net.Generate(reverseEncoding, stochastic=True)
-	print("Max sampling (expect cycles/repetition): ")
-	net.Generate(reverseEncoding, stochastic=False)
-	exit()
-
-	torchEta = 5E-5
-	#convert the dataset to tensor form for pytorch
-	dataset = convertToTensorData(dataset)
-	rnn = DiscreteSymbolRNN(xDim, hiddenUnits, yDim)
-	rnn.train(dataset, epochs=4, batchSize=100, torchEta=torchEta, bpttStepLimit=bpStepLimit)
-	rnn.generate(reverseEncoding)
-
-	"""
-	rnn = torch.nn.RNN(input_size=xDim, hidden_size=hiddenUnits, num_layers=1, nonlinearity='tanh', bias=True)
-	#hdim = 128
-	#rnn = RNN(n_letters, n_hidden, n_categories)
-	#convert the dataset to tensor form for pytorch
-	#input = torch.randn(5, 3, 10)   <-- input to rnn, eg 'rnn(input, h0)' is of size (seq_len x batch x input_size)
-	while True:
-		#stochastically build a mini-batch of examples
-		batchSize = 3
-		batch = [dataset[random.randint(0,len(dataset)-1)] for i in range(batchSize)]
-		x_in = [[pair[0] for pair in seq] for seq in batch]
-		y_out = [[pair[1] for pair in seq] for seq in batch]
-	"""
-
-
-
-if __name__ == "__main__":
-	main()
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 

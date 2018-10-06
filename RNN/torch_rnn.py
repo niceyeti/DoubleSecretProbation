@@ -8,7 +8,6 @@ import torch
 import random
 import matplotlib.pyplot as plt
 
-
 torch_default_dtype=torch.float32
 
 class DiscreteSymbolRNN(torch.nn.Module):
@@ -35,6 +34,7 @@ class DiscreteSymbolRNN(torch.nn.Module):
 		"""
 		combined = torch.cat((x, hidden), 1)
 		hidden = self.i2h(combined)
+		hidden = torch.nn.functional.tanh(hidden)
 		linearOut = self.h2o(hidden)
 		output = self.softmax(linearOut)
 
@@ -156,7 +156,7 @@ class DiscreteSymbolRNN(torch.nn.Module):
 					batchLoss += loss.item()
 
 				losses.append(batchLoss/float(len(sequence)))
-				"""		
+				"""
 
 			# After batch completion, add parameters' gradients to their values, multiplied by learning rate, for this single sequence
 			for p in self.parameters():
