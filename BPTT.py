@@ -26,16 +26,20 @@ numpy_default_dtype=np.float32
 """
 Returns all words in some file, with all non-alphabetic characters removed, and lowercased.
 """
-def GetWordSequence(fpath):
+def GetSentenceSequence(fpath):
 	words = []
 	with open(fpath,"r") as ifile:
 		#read entire character sequence of file
 		novel = ifile.read().replace("\r"," ").replace("\t"," ").replace("\n"," ")
-		novel = re.sub(r"[^a-zA-Z]",' ',novel).lower()
-		words = novel.split()
+		novel = novel.replace("'","").replace("    "," ").replace("  "," ").replace("  "," ").replace("  "," ").replace("  "," ")
+		sentences = [sentence.strip() for sentence in novel.split(".")]
+		sentences = [re.sub(r"[^a-zA-Z ]", '', sentence).lower() for sentence in sentences]
+		#lots of junk in the beginning, so toss it
+		sentences = [sentence for sentence in sentences[100:] if sentence != " " and len(sentence) > 0]
 		#print(novel)
+	#print(sentences)
 
-	return words
+	return sentences
 
 """
 Returns a list of lists of (x,y) numpy vector pairs describing bigram character data: x=c_i, y=c_i_minus_one.
@@ -49,31 +53,31 @@ Each sequence consists of a list of numpy one-hot encoded column-vector (shape=(
 every sequence is the start-of-line character '^', and the last y in every sequence is the end-of line character '$'.
 If this is undesired, these input/outputs can just be skipped in training.
 
-@asTensor: If true, store dataset items as pytorch tensors instead of numpy matrices
+@limit: Number of sequences to extract
 """
-def BuildSequenceDataset(fpath = "./mldata/treasureIsland.txt"):
+def BuildSequenceDataset(fpath = "./mldata/treasureIsland.txt", limit=1000):
 	dataset = []
 
-	words = GetWordSequence(fpath)
+	sequences = GetSentenceSequence(fpath)
 	charMap = dict()
 	i = 0
-	for c in string.ascii_lowercase:
+	for c in string.ascii_lowercase+' ':
 		charMap[c] = i
 		i+=1
 
 	#add beginning and ending special characters to delimit beginning and end of sequences
 	charMap['^'] = i
 	charMap['$'] = i + 1
-	print("num classes: {}  num sequences: {}".format(len(charMap.keys()), len(words)))
+	print("num classes: {}  num sequences: {}".format(len(charMap.keys()), len(sequences)))
 	numClasses = len(charMap.keys())
 	startVector = np.zeros(shape=(numClasses,1), dtype=numpy_default_dtype)
 	startVector[charMap['^'],0] = 1
 	endVector = np.zeros(shape=(numClasses,1), dtype=numpy_default_dtype)
 	endVector[charMap['$'],0] = 1
-	for word in words:#[10000:50000]: #word sequence can be truncated, since full text might be explosive
+	for seq in sequences[0:limit]: #word sequence can be truncated, since full text might be explosive
 		sequence = [startVector]
 		#get the raw sequence of one-hot vectors representing characters
-		for c in word:
+		for c in seq:
 			vec = np.zeros(shape=(numClasses,1),dtype=numpy_default_dtype)
 			vec[charMap[c],0] = 1
 			sequence.append(vec)
@@ -388,11 +392,18 @@ class BPTT_Network(object):
 		return examples
 
 	"""
-	some notes: could snapshot and return weights at minimum error
+	For bpStepLimit, I implemented this using the kludgy solution of simply resetting the next (downstream) hidden layer gradient
+	to the zero vector every bpStepLimit steps. Formally, truncated bptt backprops bpStepLimit steps from time t, accumulates these
+	changes, then moves to step t-1 and backprops bpStepLimit steps. But notice the O(n^2) increase in training time. One can instead
+	backprop bpStepLimit steps from time t, then simply reset the hidden layer gradient to the zero vector, effectively resetting
+	backprop and continuing another bpStepLimit steps, which runs in linear time. This is still effective learning, since the expectation
+	of learning examples doesn't change, and in fact it might encourage less overfitting per each sequence; but it is invalid from the
+	perspective of forward propagating certain information but not backpropping it, since certain portions of a sequence will depend on that info,
+	but won't backprop it.
 
 	@saveMinWeights: If true, snapshot the weights at the minimum training error.
 	"""
-	def Train(self, dataset, maxEpochs=1000, miniBatchSize=4, bpStepLimit=4, clipGrad=False, momentum=0.0001, saveMinWeights=True):
+	def Train(self, dataset, maxEpochs=1000, miniBatchSize=4, bpStepLimit=4, clipGrad=False, momentum=0.0001, saveMinWeights=True, etaDecay=0.999, momentumDecay=0.999):
 		losses = []
 		dCdW = np.zeros(shape=self._W.shape, dtype=numpy_default_dtype)
 		dCdV = np.zeros(shape=self._V.shape, dtype=numpy_default_dtype)
@@ -418,6 +429,7 @@ class BPTT_Network(object):
 		random.shuffle(dataset)
 		minLoss = 99999.0
 		useMomentum = momentum > 0.0
+		h_zeroes = np.zeros(shape=(self.NumHiddenUnits,1)) #memory optimization by not declaring new np matrices/vectors inside loops
 
 		for _ in range(maxEpochs):
 			#initialize the weight-change matrices in which to accumulate weight changes, since weights are tied in vanilla rnn's
@@ -444,19 +456,21 @@ class BPTT_Network(object):
 							V_min = self._V[:]
 							Bi_min = self._inputBiases[:]
 
-					print("Example batch count {} avgLoss: {}  minLoss: {}".format(count,avgLoss,minLoss))
+					print("Example batch count {} avgLoss: {}  minLoss: {} eta: {:.3E} momentum: {:.3E}".format(count, avgLoss, minLoss, self._eta, momentum))
 					#print("Example count {} avgLoss: {}  minLoss: {}  {}".format(count,avgLoss,minLoss, str(self._Ys[-1].T)))
 				self._resetNetwork()
 
 				#clipping the start/end of line characters input/outputs can be done here
 				xs = [xyPair[0] for xyPair in sequence]
 				ys = [xyPair[1] for xyPair in sequence]
-				t_end = len(ys)
 				#forward propagate entire sequence, storing info needed for weight updates: outputs and states at each time step t
 				self.ForwardPropagate(xs)
 
-				dhNext = np.zeros_like(self._SS[-1])
-				for t in reversed(range(1,t_end)):
+				#initialize the last hidden state (after output limit) to zero vector
+				dhNext = h_zeroes
+				bpSteps = 0
+				for t in reversed(range(len(ys))):
+				#for t in reversed(range(1,t_end)):
 					#calculate output error at step t, from which to backprop
 					y_target = sequence[t][1]
 					e_output = y_target - self._Ys[t] #output error per softmax, |y| x 1 vector. In some lit, the actual error is (y^ - y*); but since we're descending this gradient, negated it is -1.0(y^-y*) = (y*-y^
@@ -469,22 +483,26 @@ class BPTT_Network(object):
 					#biases updated directly from e_output for output biases
 					dCbO += e_output
 					#get stationary output layer error wrt hidden layer
-					dO = self._Ss[t] * self._W.T.dot(e_output)
+					dO = self._W.T.dot(e_output)
 					#get the (recursive) hidden layer error wrt output layer and t+1 hidden layer error
 					hPrime_t = self._hiddenPrime(self._Ss[t])
-					dH_t = hPrime_t * self._W.T.dot(e_output) * dhNext + dO
+					dH_t = hPrime_t * (dO + dhNext)
 					if clipGrad:
 						#clip the gradients (OPTIONAL)
-						dH_t = np.clip(dH_t, -4.0, 4.0)
+						dH_t = np.clip(dH_t, -1.0, 1.0)
 
 					#get the previous state; either t-1 state for t > 0, or the initial state distribution
 					hPrev = self._Ss[t-1] if t > 0 else self._initialState
 					#update the input and hidden weight matrices
-					delta_t = hPrime_t * dH_t
-					dCdU += delta_t * hPrev
-					dCdV += delta_t * self._Xs[t]
-					dCbI += delta_t
-					dhNext = dH_t
+					dCdU += np.outer(dH_t, hPrev)
+					dCdV += np.outer(dH_t, self._Xs[t])
+					dCbI += dH_t
+					bpSteps += 1
+					if bpSteps > bpStepLimit:
+						bpSteps = 0
+						dhNext = h_zeroes
+					else:
+						dhNext = self._U.T.dot(dH_t)
 
 			#apply the cumulative weight changes; the latter incorporates momentum
 			if not useMomentum:
@@ -505,6 +523,11 @@ class BPTT_Network(object):
 				dCdV_prev[:] = dCdV[:]
 				dCbI_prev[:] = dCbI[:]
 
+			if etaDecay > 0 and self._eta >= 5E-7: #shrink to a minimum of 5E-7
+				self._eta *= etaDecay
+			if momentumDecay > 0 and momentum >= 1E-7:
+				momentum *= momentumDecay
+
 		if saveMinWeights:
 			#reload the weights from the min training error 			
 			self._W = W_min[:]
@@ -514,8 +537,9 @@ class BPTT_Network(object):
 			self._inputBiases = Bi_min[:]
 
 		#plot the losses
-		k = 100
-		avgLoss = [sum(losses[i:i+k])/float(k) for i in range(len(losses)-k)]
+		k = 500
+		print("Plotting losses...")
+		avgLoss = [sum(losses[i:i+k])/float(k) for i in range(0, len(losses)-k, k)]
 		xs = [i for i in range(len(avgLoss))]
 		plt.plot(xs, avgLoss)
 		plt.show()
@@ -549,7 +573,32 @@ class BPTT_Network(object):
 """
 
 def main():
-	dataset, encodingMap = BuildSequenceDataset()
+	eta = 1E-5
+	hiddenUnits = 50
+	maxEpochs = 500
+	miniBatchSize = 1
+	momentum = 1E-5
+	bpStepLimit = 4
+	numSequences = 10000
+	clipGrad = "--clipGrad" in sys.argv
+	saveMinWeights = "--saveMinWeights" in sys.argv
+	for arg in sys.argv:
+		if "-hiddenUnits=" in arg:
+			hiddenUnits = int(arg.split("=")[-1])
+		if "-eta=" in arg:
+			eta = float(arg.split("=")[-1])
+		if "-momentum=" in arg:
+			momentum = float(arg.split("=")[-1])
+		if "-bpStepLimit=" in arg:
+			bpStepLimit = int(arg.split("=")[-1])
+		if "-maxEpochs=" in arg:
+			maxEpochs = int(arg.split("=")[-1])
+		if "-miniBatchSize=" in arg:
+			miniBatchSize = int(arg.split("=")[-1])
+		if "-numSequences" in arg:
+			numSequences = int(arg.split("=")[-1])
+
+	dataset, encodingMap = BuildSequenceDataset(limit=numSequences)
 	reverseEncoding = dict([(encodingMap[key],key) for key in encodingMap.keys()])
 
 	print("First few target outputs:")
@@ -565,26 +614,19 @@ def main():
 	print("SHAPE: {} {}".format(dataset[0][0][0].shape, dataset[0][0][1].shape))
 	xDim = dataset[0][0][0].shape[0]
 	yDim = dataset[0][0][1].shape[0]
-	eta = 2E-5
-	hiddenUnits = 64
-	maxEpochs = 400
-	miniBatchSize = 100
-	momentum = 0.0001
-	clipGrad = False
-	saveMinWeights = True
-	bpStepLimit = 3
 
-	"""
+
 	print("TODO: Implement sigmoid and tanh scaling to prevent over-saturation; see Simon Haykin's backprop implementation notes")
 	print("TOOD: Implement training/test evaluation methods, beyond the cost function. Evaluate the probability of sequences in train/test data.")
-	net = BPTT_Network(eta, xDim, hiddenUnits, yDim, lossFunction="SSE", outputActivation="SOFTMAX", hiddenActivation="SIGMOID")
+	print("Building rnn with {} inputs, {} hidden units, {} outputs".format(xDim, hiddenUnits, yDim))
+	net = BPTT_Network(eta, xDim, hiddenUnits, yDim, lossFunction="SSE", outputActivation="SOFTMAX", hiddenActivation="TANH")
 	#train the model
 	net.Train(dataset, maxEpochs, miniBatchSize, bpStepLimit=bpStepLimit, clipGrad=clipGrad, momentum=momentum, saveMinWeights=saveMinWeights)
 	print("Stochastic sampling: ")
 	net.Generate(reverseEncoding, stochastic=True)
 	print("Max sampling (expect cycles/repetition): ")
 	net.Generate(reverseEncoding, stochastic=False)
-	"""
+	exit()
 
 	torchEta = 5E-5
 	#convert the dataset to tensor form for pytorch
