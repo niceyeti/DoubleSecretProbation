@@ -2,6 +2,9 @@
 A simple vanilla rnn demonstration for discrete sequential prediction using pytorch. This is just for learning pytorch.
 RNN model: Given an input symbol and the current hidden state, predict the next character. So we have
 discrete one-hot input, and discrete one-hot output.
+
+This is a manually defined training version for learning torch, and shouldn't be used. Use the torch
+built-in RNN cell instead.
 """
 
 import torch
@@ -34,7 +37,7 @@ class DiscreteSymbolRNN(torch.nn.Module):
 		"""
 		combined = torch.cat((x, hidden), 1)
 		hidden = self.i2h(combined)
-		hidden = torch.nn.functional.tanh(hidden)
+		hidden = torch.tanh(hidden)
 		linearOut = self.h2o(hidden)
 		output = self.softmax(linearOut)
 
@@ -107,21 +110,24 @@ class DiscreteSymbolRNN(torch.nn.Module):
 		random.shuffle(dataset)
 
 		for epoch in range(epochs):
+			if epoch > 0:
+				k = 20
+				print("Epoch {}, avg loss of last k: {}".format(epoch, sum(losses[-k:])/float(len(losses[-k:]))))
+				if epoch == 300:
+					torchEta = 1E-4
+				if epoch == 450:
+					torchEta = 5E-5
+
 			#zero the gradients before each training batch
 			self.zero_grad()
 			#accumulate gradients over one batch
 			for _ in range(batchSize):
-				#select a random example (this is very inefficient; better to call shuffle(dataset) before training to randomize)
+				#select a new training example
 				sequence = dataset[ ct % len(dataset) ]
 				ct +=  1
 				batchLoss = 0.0
-				if ct % 1000 == 999:
-					print("\rSeq {} of {}       ".format(ct, len(dataset)), end="")
-
-				"""
-				TODO: I doubt that this training method is correct, given retain_graph=True, which was just a bandaid for
-				not yet know how to implement bpttStepLimit with torch. The implementation could also likely be much faster.
-				"""
+				#if ct % 1000 == 999:
+				#	print("\rIter {} of {}       ".format(ct, len(dataset)), end="")
 
 				outputs = []
 				#forward prop and accumulate gradients over entire sequence
@@ -131,14 +137,14 @@ class DiscreteSymbolRNN(torch.nn.Module):
 					output, hidden = self(x_t, hidden)
 					outputs.append(output)
 
-				for i in range(len(sequence)):
+				#for i in range(len(sequence)):
 					y_target = sequence[i][1]
 					loss = criterion(outputs[i], torch.tensor([y_target.argmax()], dtype=torch.long))
 					loss.backward(retain_graph=True)
 					batchLoss += loss.item()
 
+				#print("Batch loss: {}".format(batchLoss))
 				losses.append(batchLoss/float(len(sequence)))
-
 
 				"""
 				This was a wasteful use of a double loop over the training sequence, but pytorch could support bptt step limit in other ways.
@@ -162,14 +168,17 @@ class DiscreteSymbolRNN(torch.nn.Module):
 			for p in self.parameters():
 				p.data.add_(-torchEta, p.grad.data)
 
-			#print("OUT {}\n Item {}".format(output,loss.item()))
-
 		#plot the losses
-		k = 100
-		losses = [sum(losses[i:i+k])/float(k) for i in range(len(losses)-k)]
-		xs = [i for i in range(len(losses))]
-		plt.plot(xs,losses)
+		k = 20
+		avgLosses = [sum(losses[i:i+k])/float(k) for i in range(len(losses)-k)]
+		xs = [i for i in range(len(avgLosses))]
+		plt.plot(xs,avgLosses)
 		plt.show()
+
+
+
+
+
 
 
 

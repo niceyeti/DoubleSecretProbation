@@ -140,6 +140,7 @@ def main():
 	xDim = dataset[0][0][0].shape[0]
 	yDim = dataset[0][0][1].shape[0]
 
+	"""
 	print("TODO: Implement sigmoid and tanh scaling to prevent over-saturation; see Simon Haykin's backprop implementation notes")
 	print("TOOD: Implement training/test evaluation methods, beyond the cost function. Evaluate the probability of sequences in train/test data.")
 	print("Building rnn with {} inputs, {} hidden units, {} outputs".format(xDim, hiddenUnits, yDim))
@@ -151,13 +152,19 @@ def main():
 	print("Max sampling (expect cycles/repetition): ")
 	net.Generate(reverseEncoding, stochastic=False)
 	#exit()
+	"""
 
-	torchEta = 5E-5
+	torchEta = 1E-3
 	#convert the dataset to tensor form for pytorch
-	dataset = convertToTensorData(dataset)
+	dataset = convertToTensorData(dataset[0:20])
 	rnn = DiscreteSymbolRNN(xDim, hiddenUnits, yDim)
-	rnn.train(dataset, epochs=1, batchSize=20, torchEta=torchEta, bpttStepLimit=bpStepLimit)
+	print("Training...")
+	rnn.train(dataset, epochs=maxEpochs, batchSize=20, torchEta=torchEta, bpttStepLimit=bpStepLimit)
 	rnn.generate(reverseEncoding)
+
+
+	rnn = DiscreteGRU(xDim, hiddenUnits, yDim)
+
 
 	"""
 	rnn = torch.nn.RNN(input_size=xDim, hidden_size=hiddenUnits, num_layers=1, nonlinearity='tanh', bias=True)
