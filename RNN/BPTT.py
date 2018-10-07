@@ -19,6 +19,7 @@ import torch
 from numpy_rnn import NumpyRnn
 import matplotlib.pyplot as plt
 from torch_rnn import *
+from torch_gru import *
 
 #Best to stick with float; torch is more float32 friendly according to highly reliable online comments
 numpy_default_dtype=np.float32
@@ -157,13 +158,21 @@ def main():
 	torchEta = 1E-3
 	#convert the dataset to tensor form for pytorch
 	dataset = convertToTensorData(dataset[0:20])
+	#randomize the dataset
+	print("Shuffling dataset...")
+	random.shuffle(dataset)
+
+	"""
 	rnn = DiscreteSymbolRNN(xDim, hiddenUnits, yDim)
 	print("Training...")
 	rnn.train(dataset, epochs=maxEpochs, batchSize=20, torchEta=torchEta, bpttStepLimit=bpStepLimit)
 	rnn.generate(reverseEncoding)
+	"""
 
-
-	rnn = DiscreteGRU(xDim, hiddenUnits, yDim)
+	gru = DiscreteGRU(xDim, hiddenUnits, yDim)
+	print("Training...")
+	gru.train(dataset, epochs=maxEpochs, batchSize=20, torchEta=torchEta, bpttStepLimit=bpStepLimit)
+	gru.generate(reverseEncoding)
 
 
 	"""

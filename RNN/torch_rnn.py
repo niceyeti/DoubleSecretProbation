@@ -106,9 +106,6 @@ class DiscreteSymbolRNN(torch.nn.Module):
 		losses = []
 		epochs = epochs * int(len(dataset) / batchSize)
 
-		#randomize the dataset
-		random.shuffle(dataset)
-
 		for epoch in range(epochs):
 			if epoch > 0:
 				k = 20
@@ -136,8 +133,7 @@ class DiscreteSymbolRNN(torch.nn.Module):
 					x_t = sequence[i][0]
 					output, hidden = self(x_t, hidden)
 					outputs.append(output)
-
-				#for i in range(len(sequence)):
+					#compare output to target
 					y_target = sequence[i][1]
 					loss = criterion(outputs[i], torch.tensor([y_target.argmax()], dtype=torch.long))
 					loss.backward(retain_graph=True)
