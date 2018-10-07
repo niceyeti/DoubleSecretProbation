@@ -12,6 +12,7 @@ import matplotlib.pyplot as plt
 
 torch_default_dtype=torch.float32
 
+#A GRU cell with softmax output off the hidden state
 class DiscreteGRU(nn.Module):
 	def __init__(self, xdim, hdim, ydim):
 		super(DiscreteGRU, self).__init__()
