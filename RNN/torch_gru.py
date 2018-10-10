@@ -14,28 +14,87 @@ torch_default_dtype=torch.float32
 
 #A GRU cell with softmax output off the hidden state; one-hot input/output, for a character prediction demo
 class DiscreteGRU(torch.nn.Module):
-	def __init__(self, xdim, hdim, ydim):
+	def __init__(self, xdim, hdim, ydim, numHiddenLayers):
 		super(DiscreteGRU, self).__init__()
 
 		self.hdim = hdim
-		self.gru = torch.nn.GRU(xdim, hdim, batch_first=False)
+		self.numHiddenLayers = numHiddenLayers
+		self.gru = torch.nn.GRU(input_size=xdim, hidden_size=hdim, num_layers=numHiddenLayers, batch_first=False)
 		self.linear = torch.nn.Linear(hdim, ydim)
 		self.softmax = torch.nn.LogSoftmax(dim=1)
 
 	def forward(self, x_t, hidden):
-		_, hidden = self.gru(x_t, hidden)
-		output = self.linear(hidden)
-		output = self.softmax(output)
+		z_t, hidden = self.gru(x_t, hidden) #@output contains all hidden states [1..t], whereas @hidden only contains the final hidden state
+		s_t = self.linear(z_t)
+		output = self.softmax(s_t)
 
 		return output, hidden
 
-	def initHidden(self, N):
-		return Variable(torch.zeros(1, N, self.hidden_size))
+	"""
+	The axes semantics are (num_layers, minibatch_size, hidden_dim).
+	Returns @batchSize copies of the zero vector as the initial state
+	"""
+	def initHidden(self, batchSize):
+		#return Variable(torch.zeros(1, batchSize, self.hidden_size))
+		return torch.zeros(self.numHiddenLayers, batchSize, self.hdim)
 
-	def getInitialHiddenState(self, dtype=torch_default_dtype):
-		return torch.zeros(1, self.hdim, dtype=dtype)
+	#def getInitialHiddenState(self, dtype=torch_default_dtype):
+	#	return torch.zeros(1, self.hdim, dtype=dtype)
 
-	def train(self, dataset, epochs, batchSize=30, torchEta=5E-5, bpttStepLimit=5):
+
+	"""
+	@trainingSeqs: A list of training sequences, themselves lists of tensors of numpy vectors
+	"""
+	def _padSequenceBatch(self, trainingSeqs):
+		#sort training sequences by length, descending
+		trainingSeqs = sorted(trainingSeqs, key=lambda seq:len(seq))
+		maxLength = max(len(example) for seq in trainingSeqs)
+		batch = torch.zeros((len(trainingSeqs), maxLength, 1))
+		for example in trainingSeqs:
+			pass
+
+	def _getMinibatch(self, dataset, batchSize):
+		"""
+		Given a dataset of sequence examples, returns @batchSize random examples
+		@dataset: A list of sequence training examples, each of which is a list of (x_t, y_t) tensor pairs/tuples
+
+		Returns: The pytorch rnn api's (lstm, gru, etc) expect 3d tensor input in the format:
+			axis 1: the sequence itself
+			axis 2: indexes instances in the minibatch
+			axis 3: indexes elements of the input
+		"""
+		batchData = [dataset[random.randint(0,len(dataset)-1) % len(dataset)] for _ in range(batchSize)]
+		maxLength = max(len(example) for example in batchData)
+		for i, example in enumerate(batchData):
+			xs = torch.zeros((len(example), maxLength, 1))
+			
+
+
+		batchIn = torch.zeros((batchSize, maxLength, 1))
+		batchOut = torch.zeros((batchSize, maxLength, 1))
+		for i, example in enumerate(batchData):
+			xs = torch.zeros((len(example), maxLength, 1))
+			batchIn[i] = torch.stack([x_t.view(1,-1) for x_t, _ in example], dim=1)
+			batchOut[i] = torch.stack([y_t.view(1,-1) for _, y_t in example], dim=1)
+			"""
+			xs = [x_t.view(1,-1) for x_t, _ in example]
+			ys = [y_t.view(1,-1) for _, y_t in example]
+			#convert list of tensors to a single tensor
+			print("X[0]: {} example len: {}".format(xs[0].size(), len(example)))
+			xs = torch.stack(xs, dim=1)
+			print("xs: {} {}".format(xs.size(), xs))
+			ys = torch.stack(ys, dim=1)
+			formattedXs.append(xs)
+			formattedYs.append(ys)
+			"""
+
+		print("XS2: {}".format(formattedXs))
+		print("YS2: {}".format(formattedYs))
+		#finally, converts all lists of tensors to tensors
+		#return formattedXs, formattedYs
+		return torch.stack(formattedXs, dim=1), torch.stack(formattedYs, dim=1)
+
+	def train(self, batchedData, epochs, batchSize=5, torchEta=5E-5, bpttStepLimit=5):
 		"""
 		This is just a working example of a torch BPTT network; it is far from correct yet.
 		The hyperparameters and training regime are not optimized or even verified, other than
@@ -44,6 +103,12 @@ class DiscreteGRU(torch.nn.Module):
 		According to torch docs it might be possible to leave this is in its explicit example/update form,
 		but instead simply accumulate the gradient updates over multiple time steps, or multiple sequences,
 		by simply choosing when to zero the gradient with rnn.zero_grad().
+
+		A very brief example from the torch docs, for reference wrt dimensions of input, hidden, output:
+			>>> rnn = nn.GRU(10, 20, 2)    	  	# <-- |x|, |h|, num-layers
+			>>> input = torch.randn(5, 3, 10) 	# <-- 1 batch of 5 training example in sequence of length 3, input dimension 10
+			>>> h0 = torch.randn(2, 3, 20)		# <-- 2 hidden states matching sequence length of 3, hidden dimension 20; 2 hidden states, because this GRU has two layers
+			>>> output, hn = rnn(input, h0)
 
 		@dataset: A list of lists, where each list represents one training sequence and consists of (x,y) pairs
 				  of one-hot encoded vectors.
@@ -54,60 +119,46 @@ class DiscreteGRU(torch.nn.Module):
 		@bpttStepLimit: the number of timesteps over which to backpropagate before truncating; some papers are
 				quite generous with this parameter (steps=30 or so), despite possibility of gradient issues.
 		"""
+
+		if batchSize > 1:
+			print("Sorry, batch size > 1 not yet implemented, until I figure out the torch tensor/gru interface")
+			exit()
+
 		#define the negative log-likelihood loss function
 		criterion = torch.nn.NLLLoss()
+		#swap different optimizers
+		optimizer = torch.optim.SGD(self.parameters(), lr=1e-4, momentum=0.9)
 		ct = 0
+		k = 20
 		losses = []
-		epochs = epochs * int(len(dataset) / batchSize)
-
+		#epochs = epochs * len(batchedData) // batchSize
 		for epoch in range(epochs):
 			if epoch > 0:
-				k = 20
-				print("Epoch {}, avg loss of last k: {}".format(epoch, sum(losses[-k:])/float(len(losses[-k:]))))
+				print("Epoch {}, avg loss of last {} epochs: {}".format(epoch, k, sum(losses[-k:])/float(len(losses[-k:]))))
 				if epoch == 300:
 					torchEta = 1E-4
 				if epoch == 450:
 					torchEta = 5E-5
 
-			#zero the gradients before each training batch
-			self.zero_grad()
-			#accumulate gradients over one batch
-			for _ in range(batchSize):
-				#select a new training example
-				sequence = dataset[ ct % len(dataset) ]
-				ct +=  1
-				batchLoss = 0.0
-				#if ct % 1000 == 999:
-				#	print("\rIter {} of {}       ".format(ct, len(dataset)), end="")
+			#x_batch, y_batch = self._getMinibatch(dataset, batchSize)
+			x_batch, y_batch = batchedData[epoch%len(batchedData)]
+			hidden = self.initHidden(batchSize)
+			#print("Hidden: {}".format(hidden.size()))
+			# Forward pass: Compute predicted y by passing x to the model
+			print("x batch size: {} hidden size: {}".format(x_batch.size(), hidden.size()))
+			y_pred, hidden = self.gru(x_batch, None)
+			print("Y pred size: {} Hidden size: {}".format(y_pred.size(), hidden.size()))
 
-				outputs = []
-				#forward prop and accumulate gradients over entire sequence
-				#hidden = self.initHidden(len(sequence))				
-				hidden = self.getInitialHiddenState()
-				"""
-				xs = [p[0] for p in sequence]
-				print("xs: {}".format(xs))
-				xs = torch.Tensor([xs])
-				output, hidden = self(x_t, hidden)
-				"""
-				for i in range(len(sequence)):
-					x_t = sequence[i][0]
-					output, hidden = self((1, x_t.view(1,1,-1), 29), hidden.view(1,1,-1))
-					outputs.append(output)
-					print("Out: {}\nHidden: {}".format(output, hidden))
-					#compare output to target
-					y_target = sequence[i][1]
-					#loss = criterion(outputs[i], torch.tensor([y_target.argmax()], dtype=torch.long))
-					loss = criterion(outputs[i], y_target.to(torch.long))
-					loss.backward(retain_graph=True)
-					batchLoss += loss.item()
+			# Compute and print loss
+			loss = criterion(y_pred, y_batch)
+			epochLoss = loss.item()
+			print(t, epochLoss)
+			losses.append(epochLoss)
 
-				#print("Batch loss: {}".format(batchLoss))
-				losses.append(batchLoss/float(len(sequence)))
-
-			# After batch completion, add parameters' gradients to their values, multiplied by learning rate, for this single sequence
-			for p in self.parameters():
-				p.data.add_(-torchEta, p.grad.data)
+			# Zero gradients, perform a backward pass, and update the weights.
+			optimizer.zero_grad()
+			loss.backward()
+			optimizer.step()
 
 		#plot the losses
 		k = 20

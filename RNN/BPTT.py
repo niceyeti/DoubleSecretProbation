@@ -47,12 +47,13 @@ Returns a list of lists of (x,y) numpy vector pairs describing bigram character 
 
 The data consists of character sequences derived from the novel Treasure Island.
 Training sequences consist of the words of this novel, where the entire novel is lowercased,
-punctuation is dropped, and word are tokenized via split(). Pretty simple. It will be neat to see 
+punctuation is dropped, and word are tokenized via split(). Pretty simple--and inefficient. It will be neat to see 
 what kind of words such a neural net could generate.
 
 Each sequence consists of a list of numpy one-hot encoded column-vector (shape=(k,1)) pairs. The initial x in 
 every sequence is the start-of-line character '^', and the last y in every sequence is the end-of line character '$'.
-If this is undesired, these input/outputs can just be skipped in training.
+If this is undesired, these input/outputs can just be skipped in training; it is an unprincipled way of modeling
+sequences begin/termination (see the Goodfellow Deep Learning book for better methods).
 
 @limit: Number of sequences to extract
 """
@@ -84,17 +85,49 @@ def BuildSequenceDataset(fpath = "../mldata/treasureIsland.txt", limit=1000):
 			sequence.append(vec)
 		sequence.append(endVector)
 		#since our input classes are same as outputs, just pair them off-by-one, such that the network learns bigram like distributions: given x-input char, y* is next char
-		xs = [vec for vec in sequence[:-1]]
-		ys = [vec for vec in sequence[1:]]
+		xs = sequence[:-1]
+		ys = sequence[1:]
 		sequence = list(zip(xs,ys))
 		dataset.append(sequence)
 
 	return dataset, charMap
 
+"""
+Converts a dataset, as returned by BuildSequenceData, to tensor form.
+@dataset: A list of training sequences consisting of (x_t,y_t) vector pairs; the training sequences are also just python lists.
+Returns: Returns the dataset in the same format as the input datset, just with the numpy vecs replaced by tensors.
+"""
 def convertToTensorData(dataset):
 	print("Converting numpy data items to tensors...")
 	dataset = [[(torch.from_numpy(x.T).to(torch.float32), torch.from_numpy(y.T).to(torch.float32)) for x,y in sequence] for sequence in dataset]
 	return dataset
+
+"""
+Given a dataset as a list of training examples, each of which is a list of (x_t,y_t) numpy vector pairs,
+converts the data to tensor batches of size @batchSize. Note that a constraint on batch data for torch rnn modules
+is that the training sequences in each batch must be exactly the same length, when using the builtin rnn modules.
+
+"""
+def convertToTensorBatchData(dataset, batchSize=1):
+	batches = []
+	xdim = dataset[0][0][0].shape[0]
+	ydim = dataset[0][0][1].shape[0]
+
+	print("Converting numpy data to tensor batches of padded sequences...")
+	for step in range(0,len(dataset),batchSize):
+		batch = dataset[step:step+batchSize]
+		#convert to tensor data
+		maxLength = max(len(seq) for seq in batch)
+		batchXs = torch.zeros(batchSize, maxLength, xdim)
+		batchYs = torch.zeros(batchSize, maxLength, ydim)
+		for i, seq in enumerate(batch):
+			for j, (x, y) in enumerate(seq):
+				batchXs[i,j,:] = torch.from_numpy(x.T).to(torch.float32)
+				batchYs[i,j,:] = torch.from_numpy(y.T).to(torch.float32)
+		batches.append((batchXs, batchYs))
+		break
+	print("Batch zero size: {}".format(batches[0][0].size()))
+	return batches
 
 def main():
 	eta = 1E-5
@@ -157,7 +190,8 @@ def main():
 
 	torchEta = 1E-3
 	#convert the dataset to tensor form for pytorch
-	dataset = convertToTensorData(dataset[0:20])
+	#dataset = convertToTensorData(dataset[0:20])
+	batchedData = convertToTensorBatchData(dataset, batchSize=1)
 	#randomize the dataset
 	print("Shuffling dataset...")
 	random.shuffle(dataset)
@@ -169,11 +203,10 @@ def main():
 	rnn.generate(reverseEncoding)
 	"""
 
-	gru = DiscreteGRU(xDim, hiddenUnits, yDim)
+	gru = DiscreteGRU(xDim, hiddenUnits, yDim, numHiddenLayers=1)
 	print("Training...")
-	gru.train(dataset, epochs=maxEpochs, batchSize=20, torchEta=torchEta, bpttStepLimit=bpStepLimit)
+	gru.train(batchedData, epochs=maxEpochs, batchSize=miniBatchSize, torchEta=torchEta, bpttStepLimit=bpStepLimit)
 	gru.generate(reverseEncoding)
-
 
 	"""
 	rnn = torch.nn.RNN(input_size=xDim, hidden_size=hiddenUnits, num_layers=1, nonlinearity='tanh', bias=True)
