@@ -22,11 +22,27 @@ class DiscreteGRU(torch.nn.Module):
 		self.gru = torch.nn.GRU(input_size=xdim, hidden_size=hdim, num_layers=numHiddenLayers, batch_first=False)
 		self.linear = torch.nn.Linear(hdim, ydim)
 		self.softmax = torch.nn.LogSoftmax(dim=1)
+		self._initWeights()
+
+	def _initWeights(self):
+		pass
+		"""
+		initRange = 1.0
+		self.gru.weight.data.uniform_(-initRange, initRange)
+		self.linear.weight.data.uniform_(-initRange, initRange)
+		self.softmax.weight.data.uniform_(-initRange, initRange)
+
+        initrange = 0.1
+        self.encoder.weight.data.uniform_(-initrange, initrange)
+        self.decoder.bias.data.zero_()
+        self.decoder.weight.data.uniform_(-initrange, initrange)
+		"""
 
 	def forward(self, x_t, hidden):
 		z_t, hidden = self.gru(x_t, hidden) #@output contains all hidden states [1..t], whereas @hidden only contains the final hidden state
 		s_t = self.linear(z_t)
 		output = self.softmax(s_t)
+		print("z_t size: {} s_t size: {} output.size(): {}".format(z_t.size(), s_t.size(), output.size()))
 
 		return output, hidden
 
@@ -34,9 +50,9 @@ class DiscreteGRU(torch.nn.Module):
 	The axes semantics are (num_layers, minibatch_size, hidden_dim).
 	Returns @batchSize copies of the zero vector as the initial state
 	"""
-	def initHidden(self, batchSize):
+	def initHidden(self, batchSize, seqLen):
 		#return Variable(torch.zeros(1, batchSize, self.hidden_size))
-		return torch.zeros(self.numHiddenLayers, batchSize, self.hdim)
+		return torch.zeros(batchSize, seqLen, self.hdim)
 
 	#def getInitialHiddenState(self, dtype=torch_default_dtype):
 	#	return torch.zeros(1, self.hdim, dtype=dtype)
@@ -142,17 +158,20 @@ class DiscreteGRU(torch.nn.Module):
 
 			#x_batch, y_batch = self._getMinibatch(dataset, batchSize)
 			x_batch, y_batch = batchedData[epoch%len(batchedData)]
-			hidden = self.initHidden(batchSize)
+			batchSeqLen = x_batch.size()[1]  #the padded length of each training sequence in the batch data
+			hidden = self.initHidden(batchSize, batchSeqLen)
 			#print("Hidden: {}".format(hidden.size()))
 			# Forward pass: Compute predicted y by passing x to the model
 			print("x batch size: {} hidden size: {}".format(x_batch.size(), hidden.size()))
-			y_pred, hidden = self.gru(x_batch, None)
-			print("Y pred size: {} Hidden size: {}".format(y_pred.size(), hidden.size()))
+			y_pred, hidden = self(x_batch, hidden)
+			print("Y pred size: {} Hidden size: {} y_batch size: {}".format(y_pred.size(), hidden.size(), y_batch.size()))
 
-			# Compute and print loss
-			loss = criterion(y_pred, y_batch)
+			# Compute and print loss. As a one-hot target nl-loss, the target parameter is a vector of indices representing the index
+			# of the target value at each time step t.
+			batchTargets = y_batch.argmax(dim=2) # y_batch is size (@batchSize x seqLen x ydim). This gets the target indices (argmax of the output) at every timestep t.
+			loss = criterion(y_pred, batchTargets)
 			epochLoss = loss.item()
-			print(t, epochLoss)
+			print(epoch, epochLoss)
 			losses.append(epochLoss)
 
 			# Zero gradients, perform a backward pass, and update the weights.

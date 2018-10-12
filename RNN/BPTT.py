@@ -106,7 +106,12 @@ def convertToTensorData(dataset):
 Given a dataset as a list of training examples, each of which is a list of (x_t,y_t) numpy vector pairs,
 converts the data to tensor batches of size @batchSize. Note that a constraint on batch data for torch rnn modules
 is that the training sequences in each batch must be exactly the same length, when using the builtin rnn modules.
+This may seem kludgy, but their api contains bidirectional models, so think about how you would batch train a bidirectional
+model using graph-based computation if the sequences in the batch weren't the same length.
 
+@dataset: A list of training examples, each of which is a list of (x,y) pairs, where x/y are numpy vectors
+Returns: @batches, a list of (x,y) tensor pairs, each of which represents one batch. x's are tensors of size (@batchSize x maxLength x xdim),
+		 and y's are tensors of size (@batchSize x maxLength x ydim)
 """
 def convertToTensorBatchData(dataset, batchSize=1):
 	batches = []
@@ -118,15 +123,16 @@ def convertToTensorBatchData(dataset, batchSize=1):
 		batch = dataset[step:step+batchSize]
 		#convert to tensor data
 		maxLength = max(len(seq) for seq in batch)
-		batchXs = torch.zeros(batchSize, maxLength, xdim)
-		batchYs = torch.zeros(batchSize, maxLength, ydim)
+		batchX = torch.zeros(batchSize, maxLength, xdim)
+		batchY = torch.zeros(batchSize, maxLength, ydim)
 		for i, seq in enumerate(batch):
 			for j, (x, y) in enumerate(seq):
-				batchXs[i,j,:] = torch.from_numpy(x.T).to(torch.float32)
-				batchYs[i,j,:] = torch.from_numpy(y.T).to(torch.float32)
-		batches.append((batchXs, batchYs))
-		break
+				batchX[i,j,:] = torch.from_numpy(x.T).to(torch.float32)
+				batchY[i,j,:] = torch.from_numpy(y.T).to(torch.float32)
+		batches.append((batchX, batchY))
+		#break
 	print("Batch zero size: {}".format(batches[0][0].size()))
+
 	return batches
 
 def main():
@@ -191,8 +197,11 @@ def main():
 	torchEta = 1E-3
 	#convert the dataset to tensor form for pytorch
 	#dataset = convertToTensorData(dataset[0:20])
+	dataset = dataset[0:2]
 	batchedData = convertToTensorBatchData(dataset, batchSize=1)
 	#randomize the dataset
+	print("Batch: {}".format(batchedData))
+	#exit()
 	print("Shuffling dataset...")
 	random.shuffle(dataset)
 
