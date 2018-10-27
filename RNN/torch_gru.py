@@ -119,7 +119,7 @@ class DiscreteGRU(torch.nn.Module):
 		#return formattedXs, formattedYs
 		return torch.stack(formattedXs, dim=1), torch.stack(formattedYs, dim=1)
 
-	def train(self, batchedData, epochs, batchSize=5, torchEta=5E-5, bpttStepLimit=5):
+	def train(self, batchedData, epochs, batchSize=5, torchEta=1E-2, momentum=0.9):
 		"""
 		This is just a working example of a torch BPTT network; it is far from correct yet.
 		The hyperparameters and training regime are not optimized or even verified, other than
@@ -152,21 +152,22 @@ class DiscreteGRU(torch.nn.Module):
 		#define the negative log-likelihood loss function
 		criterion = torch.nn.NLLLoss()
 		#swap different optimizers
-		optimizer = torch.optim.SGD(self.parameters(), lr=1e-4, momentum=0.9)
+		optimizer = torch.optim.SGD(self.parameters(), lr=torchEta, momentum=0.9)
 		ct = 0
 		k = 20
 		losses = []
 		#epochs = epochs * len(batchedData) // batchSize
 		for epoch in range(epochs):
+			"""
 			if epoch > 0:
 				print("Epoch {}, avg loss of last {} epochs: {}".format(epoch, k, sum(losses[-k:])/float(len(losses[-k:]))))
 				if epoch == 300:
 					torchEta = 1E-4
 				if epoch == 450:
 					torchEta = 5E-5
-
+			"""
 			#x_batch, y_batch = self._getMinibatch(dataset, batchSize)
-			x_batch, y_batch = batchedData[epoch%len(batchedData)]
+			x_batch, y_batch = batchedData[random.randint(0,len(batchedData)-1)]
 			batchSeqLen = x_batch.size()[1]  #the padded length of each training sequence in this batch
 			hidden = self.initHidden(batchSize, self.numHiddenLayers)
 			#print("Hidden: {}".format(hidden.size()))
@@ -178,7 +179,7 @@ class DiscreteGRU(torch.nn.Module):
 			# Compute and print loss. As a one-hot target nl-loss, the target parameter is a vector of indices representing the index
 			# of the target value at each time step t.
 			batchTargets = y_batch.argmax(dim=1) # y_batch is size (@batchSize x seqLen x ydim). This gets the target indices (argmax of the output) at every timestep t.
-			print("targets: {} {}".format(batchTargets.size(), batchTargets))
+			#print("targets: {} {}".format(batchTargets.size(), batchTargets))
 			loss = criterion(y_pred, batchTargets)
 			epochLoss = loss.item()
 			print(epoch, epochLoss)

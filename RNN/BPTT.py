@@ -194,16 +194,16 @@ def main():
 	#exit()
 	"""
 
-	torchEta = 1E-6
+	torchEta = 1E-2
 	#convert the dataset to tensor form for pytorch
 	#dataset = convertToTensorData(dataset[0:20])
 	dataset = dataset[0:200]
+	print("Shuffling dataset...")
+	random.shuffle(dataset)
 	batchedData = convertToTensorBatchData(dataset, batchSize=miniBatchSize)
 	#randomize the dataset
 	print("Batch: {}".format(batchedData))
 	#exit()
-	print("Shuffling dataset...")
-	random.shuffle(dataset)
 
 	"""
 	rnn = DiscreteSymbolRNN(xDim, hiddenUnits, yDim)
@@ -214,7 +214,7 @@ def main():
 
 	gru = DiscreteGRU(xDim, hiddenUnits, yDim, numHiddenLayers=1, batchFirst=True)
 	print("Training...")
-	gru.train(batchedData, epochs=maxEpochs, batchSize=miniBatchSize, torchEta=torchEta, bpttStepLimit=bpStepLimit)
+	gru.train(batchedData, epochs=maxEpochs, batchSize=miniBatchSize, torchEta=torchEta)
 	#gru.generate(reverseEncoding)
 
 	"""
