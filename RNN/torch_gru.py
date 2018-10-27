@@ -14,31 +14,32 @@ torch_default_dtype=torch.float32
 
 #A GRU cell with softmax output off the hidden state; one-hot input/output, for a character prediction demo
 class DiscreteGRU(torch.nn.Module):
-	def __init__(self, xdim, hdim, ydim, numHiddenLayers):
+	def __init__(self, xdim, hdim, ydim, numHiddenLayers, batchFirst):
 		super(DiscreteGRU, self).__init__()
 
+		self._batchFirst = batchFirst
 		self.hdim = hdim
 		self.numHiddenLayers = numHiddenLayers
-		self.gru = torch.nn.GRU(input_size=xdim, hidden_size=hdim, num_layers=numHiddenLayers, batch_first=False)
+		self.gru = torch.nn.GRU(input_size=xdim, hidden_size=hdim, num_layers=numHiddenLayers, batch_first=self._batchFirst)
 		self.linear = torch.nn.Linear(hdim, ydim)
 		self.softmax = torch.nn.LogSoftmax(dim=1)
 		self._initWeights()
 
 	def _initWeights(self):
-		pass
-		"""
+
 		initRange = 1.0
-		self.gru.weight.data.uniform_(-initRange, initRange)
+		print("all: {}".format(self.gru.all_weights))
+		for gruWeights in self.gru.all_weights:
+			for weight in gruWeights:
+				weight.data.uniform_(-initRange, initRange)
 		self.linear.weight.data.uniform_(-initRange, initRange)
-		self.softmax.weight.data.uniform_(-initRange, initRange)
 
-        initrange = 0.1
-        self.encoder.weight.data.uniform_(-initrange, initrange)
-        self.decoder.bias.data.zero_()
-        self.decoder.weight.data.uniform_(-initrange, initrange)
+	def forward(self, x_t, hidden=None):
+		"""
+		@X_t: Input of size ____.
+		@hidden: Hidden states of size ____, or None, which if passed will initialize hidden states to 0.
 		"""
 
-	def forward(self, x_t, hidden):
 		z_t, hidden = self.gru(x_t, hidden) #@output contains all hidden states [1..t], whereas @hidden only contains the final hidden state
 		s_t = self.linear(z_t)
 		output = self.softmax(s_t)
@@ -50,9 +51,17 @@ class DiscreteGRU(torch.nn.Module):
 	The axes semantics are (num_layers, minibatch_size, hidden_dim).
 	Returns @batchSize copies of the zero vector as the initial state
 	"""
-	def initHidden(self, batchSize, seqLen):
+	def initHidden(self, batchSize, numHiddenLayers=1, batchFirst=False):
+		"""
 		#return Variable(torch.zeros(1, batchSize, self.hidden_size))
-		return torch.zeros(batchSize, seqLen, self.hdim)
+		if batchFirst:
+			hidden = torch.zeros(batchSize, numHiddenLayers, self.hdim)
+		else:
+			hidden = torch.zeros(numHiddenLayers, seqLen, self.hdim)
+		
+		return hidden
+		"""
+		return torch.zeros(numHiddenLayers, batchSize, self.hdim)
 
 	#def getInitialHiddenState(self, dtype=torch_default_dtype):
 	#	return torch.zeros(1, self.hdim, dtype=dtype)
@@ -136,9 +145,9 @@ class DiscreteGRU(torch.nn.Module):
 				quite generous with this parameter (steps=30 or so), despite possibility of gradient issues.
 		"""
 
-		if batchSize > 1:
-			print("Sorry, batch size > 1 not yet implemented, until I figure out the torch tensor/gru interface")
-			exit()
+		#if batchSize > 1:
+		#	print("Sorry, batch size > 1 not yet implemented, until I figure out the torch tensor/gru interface")
+		#	exit()
 
 		#define the negative log-likelihood loss function
 		criterion = torch.nn.NLLLoss()
@@ -158,17 +167,18 @@ class DiscreteGRU(torch.nn.Module):
 
 			#x_batch, y_batch = self._getMinibatch(dataset, batchSize)
 			x_batch, y_batch = batchedData[epoch%len(batchedData)]
-			batchSeqLen = x_batch.size()[1]  #the padded length of each training sequence in the batch data
-			hidden = self.initHidden(batchSize, batchSeqLen)
+			batchSeqLen = x_batch.size()[1]  #the padded length of each training sequence in this batch
+			hidden = self.initHidden(batchSize, self.numHiddenLayers)
 			#print("Hidden: {}".format(hidden.size()))
 			# Forward pass: Compute predicted y by passing x to the model
-			print("x batch size: {} hidden size: {}".format(x_batch.size(), hidden.size()))
+			#print("x batch size: {} hidden size: {} y_batch size: {}".format(x_batch.size(), hidden.size(), y_batch.size()))
 			y_pred, hidden = self(x_batch, hidden)
-			print("Y pred size: {} Hidden size: {} y_batch size: {}".format(y_pred.size(), hidden.size(), y_batch.size()))
+			#print("Y pred size: {} Hidden size: {} y_batch size: {}".format(y_pred.size(), hidden.size(), y_batch.size()))
 
 			# Compute and print loss. As a one-hot target nl-loss, the target parameter is a vector of indices representing the index
 			# of the target value at each time step t.
-			batchTargets = y_batch.argmax(dim=2) # y_batch is size (@batchSize x seqLen x ydim). This gets the target indices (argmax of the output) at every timestep t.
+			batchTargets = y_batch.argmax(dim=1) # y_batch is size (@batchSize x seqLen x ydim). This gets the target indices (argmax of the output) at every timestep t.
+			print("targets: {} {}".format(batchTargets.size(), batchTargets))
 			loss = criterion(y_pred, batchTargets)
 			epochLoss = loss.item()
 			print(epoch, epochLoss)

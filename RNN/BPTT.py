@@ -110,15 +110,15 @@ This may seem kludgy, but their api contains bidirectional models, so think abou
 model using graph-based computation if the sequences in the batch weren't the same length.
 
 @dataset: A list of training examples, each of which is a list of (x,y) pairs, where x/y are numpy vectors
-Returns: @batches, a list of (x,y) tensor pairs, each of which represents one batch. x's are tensors of size (@batchSize x maxLength x xdim),
-		 and y's are tensors of size (@batchSize x maxLength x ydim)
+Returns: @batches, a list of (x,y) tensor pairs, each of which represents one training batch. x's are tensors of size
+		(@batchSize x maxLength x xdim), and y's are tensors of size (@batchSize x maxLength x ydim)
 """
 def convertToTensorBatchData(dataset, batchSize=1):
 	batches = []
 	xdim = dataset[0][0][0].shape[0]
 	ydim = dataset[0][0][1].shape[0]
 
-	print("Converting numpy data to tensor batches of padded sequences...")
+	print("Converting numpy data to tensor batches of padded sequences... TODO: incorporate pad_sequence() instead?")
 	for step in range(0,len(dataset),batchSize):
 		batch = dataset[step:step+batchSize]
 		#convert to tensor data
@@ -131,7 +131,7 @@ def convertToTensorBatchData(dataset, batchSize=1):
 				batchY[i,j,:] = torch.from_numpy(y.T).to(torch.float32)
 		batches.append((batchX, batchY))
 		#break
-	print("Batch zero size: {}".format(batches[0][0].size()))
+	print("Batch instance size: {}".format(batches[0][0].size()))
 
 	return batches
 
@@ -139,7 +139,7 @@ def main():
 	eta = 1E-5
 	hiddenUnits = 50
 	maxEpochs = 500
-	miniBatchSize = 1
+	miniBatchSize = 2
 	momentum = 1E-5
 	bpStepLimit = 4
 	numSequences = 10000
@@ -194,11 +194,11 @@ def main():
 	#exit()
 	"""
 
-	torchEta = 1E-3
+	torchEta = 1E-6
 	#convert the dataset to tensor form for pytorch
 	#dataset = convertToTensorData(dataset[0:20])
-	dataset = dataset[0:2]
-	batchedData = convertToTensorBatchData(dataset, batchSize=1)
+	dataset = dataset[0:200]
+	batchedData = convertToTensorBatchData(dataset, batchSize=miniBatchSize)
 	#randomize the dataset
 	print("Batch: {}".format(batchedData))
 	#exit()
@@ -212,10 +212,10 @@ def main():
 	rnn.generate(reverseEncoding)
 	"""
 
-	gru = DiscreteGRU(xDim, hiddenUnits, yDim, numHiddenLayers=1)
+	gru = DiscreteGRU(xDim, hiddenUnits, yDim, numHiddenLayers=1, batchFirst=True)
 	print("Training...")
 	gru.train(batchedData, epochs=maxEpochs, batchSize=miniBatchSize, torchEta=torchEta, bpttStepLimit=bpStepLimit)
-	gru.generate(reverseEncoding)
+	#gru.generate(reverseEncoding)
 
 	"""
 	rnn = torch.nn.RNN(input_size=xDim, hidden_size=hiddenUnits, num_layers=1, nonlinearity='tanh', bias=True)
