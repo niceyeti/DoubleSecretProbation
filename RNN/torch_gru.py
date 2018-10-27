@@ -9,6 +9,7 @@ https://pytorch.org/tutorials/beginner/nlp/sequence_models_tutorial.html
 import torch
 import random
 import matplotlib.pyplot as plt
+from torch_optimizer_builder import OptimizerFactory
 
 torch_default_dtype=torch.float32
 
@@ -16,6 +17,8 @@ torch_default_dtype=torch.float32
 class DiscreteGRU(torch.nn.Module):
 	def __init__(self, xdim, hdim, ydim, numHiddenLayers, batchFirst):
 		super(DiscreteGRU, self).__init__()
+
+		self._optimizerBuilder = OptimizerFactory()
 
 		self._batchFirst = batchFirst
 		self.hdim = hdim
@@ -28,7 +31,7 @@ class DiscreteGRU(torch.nn.Module):
 	def _initWeights(self):
 
 		initRange = 1.0
-		print("all: {}".format(self.gru.all_weights))
+		#print("all: {}".format(self.gru.all_weights))
 		for gruWeights in self.gru.all_weights:
 			for weight in gruWeights:
 				weight.data.uniform_(-initRange, initRange)
@@ -63,63 +66,7 @@ class DiscreteGRU(torch.nn.Module):
 		"""
 		return torch.zeros(numHiddenLayers, batchSize, self.hdim)
 
-	#def getInitialHiddenState(self, dtype=torch_default_dtype):
-	#	return torch.zeros(1, self.hdim, dtype=dtype)
-
-
-	"""
-	@trainingSeqs: A list of training sequences, themselves lists of tensors of numpy vectors
-	"""
-	def _padSequenceBatch(self, trainingSeqs):
-		#sort training sequences by length, descending
-		trainingSeqs = sorted(trainingSeqs, key=lambda seq:len(seq))
-		maxLength = max(len(example) for seq in trainingSeqs)
-		batch = torch.zeros((len(trainingSeqs), maxLength, 1))
-		for example in trainingSeqs:
-			pass
-
-	def _getMinibatch(self, dataset, batchSize):
-		"""
-		Given a dataset of sequence examples, returns @batchSize random examples
-		@dataset: A list of sequence training examples, each of which is a list of (x_t, y_t) tensor pairs/tuples
-
-		Returns: The pytorch rnn api's (lstm, gru, etc) expect 3d tensor input in the format:
-			axis 1: the sequence itself
-			axis 2: indexes instances in the minibatch
-			axis 3: indexes elements of the input
-		"""
-		batchData = [dataset[random.randint(0,len(dataset)-1) % len(dataset)] for _ in range(batchSize)]
-		maxLength = max(len(example) for example in batchData)
-		for i, example in enumerate(batchData):
-			xs = torch.zeros((len(example), maxLength, 1))
-			
-
-
-		batchIn = torch.zeros((batchSize, maxLength, 1))
-		batchOut = torch.zeros((batchSize, maxLength, 1))
-		for i, example in enumerate(batchData):
-			xs = torch.zeros((len(example), maxLength, 1))
-			batchIn[i] = torch.stack([x_t.view(1,-1) for x_t, _ in example], dim=1)
-			batchOut[i] = torch.stack([y_t.view(1,-1) for _, y_t in example], dim=1)
-			"""
-			xs = [x_t.view(1,-1) for x_t, _ in example]
-			ys = [y_t.view(1,-1) for _, y_t in example]
-			#convert list of tensors to a single tensor
-			print("X[0]: {} example len: {}".format(xs[0].size(), len(example)))
-			xs = torch.stack(xs, dim=1)
-			print("xs: {} {}".format(xs.size(), xs))
-			ys = torch.stack(ys, dim=1)
-			formattedXs.append(xs)
-			formattedYs.append(ys)
-			"""
-
-		print("XS2: {}".format(formattedXs))
-		print("YS2: {}".format(formattedYs))
-		#finally, converts all lists of tensors to tensors
-		#return formattedXs, formattedYs
-		return torch.stack(formattedXs, dim=1), torch.stack(formattedYs, dim=1)
-
-	def train(self, batchedData, epochs, batchSize=5, torchEta=1E-2, momentum=0.9):
+	def train(self, batchedData, epochs, batchSize=5, torchEta=1E-2, momentum=0.9, optimizer="sgd"):
 		"""
 		This is just a working example of a torch BPTT network; it is far from correct yet.
 		The hyperparameters and training regime are not optimized or even verified, other than
@@ -145,14 +92,12 @@ class DiscreteGRU(torch.nn.Module):
 				quite generous with this parameter (steps=30 or so), despite possibility of gradient issues.
 		"""
 
-		#if batchSize > 1:
-		#	print("Sorry, batch size > 1 not yet implemented, until I figure out the torch tensor/gru interface")
-		#	exit()
-
 		#define the negative log-likelihood loss function
 		criterion = torch.nn.NLLLoss()
-		#swap different optimizers
-		optimizer = torch.optim.SGD(self.parameters(), lr=torchEta, momentum=0.9)
+		#swap different optimizers per training regime
+		optimizer = self._optimizerBuilder.GetOptimizer(parameters=self.parameters(), lr=torchEta, momentum=momentum, optimizer="adam")
+
+		#optimizer = torch.optim.SGD(self.parameters(), lr=torchEta, momentum=0.9)
 		ct = 0
 		k = 20
 		losses = []

@@ -194,7 +194,6 @@ def main():
 	#exit()
 	"""
 
-	torchEta = 1E-2
 	#convert the dataset to tensor form for pytorch
 	#dataset = convertToTensorData(dataset[0:20])
 	dataset = dataset[0:200]
@@ -214,7 +213,7 @@ def main():
 
 	gru = DiscreteGRU(xDim, hiddenUnits, yDim, numHiddenLayers=1, batchFirst=True)
 	print("Training...")
-	gru.train(batchedData, epochs=maxEpochs, batchSize=miniBatchSize, torchEta=torchEta)
+	gru.train(batchedData, epochs=maxEpochs, batchSize=miniBatchSize, torchEta=eta)
 	#gru.generate(reverseEncoding)
 
 	"""
