@@ -196,7 +196,7 @@ def main():
 
 	#convert the dataset to tensor form for pytorch
 	#dataset = convertToTensorData(dataset[0:20])
-	dataset = dataset[0:200]
+	#dataset = dataset[0:200]
 	print("Shuffling dataset...")
 	random.shuffle(dataset)
 	batchedData = convertToTensorBatchData(dataset, batchSize=miniBatchSize)
