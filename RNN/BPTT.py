@@ -201,7 +201,7 @@ def main():
 	random.shuffle(dataset)
 	batchedData = convertToTensorBatchData(dataset, batchSize=miniBatchSize)
 	#randomize the dataset
-	print("Batch: {}".format(batchedData))
+	print("Batch[0]: {}".format(batchedData[0]))
 	#exit()
 
 	"""
@@ -211,6 +211,8 @@ def main():
 	rnn.generate(reverseEncoding)
 	"""
 
+
+	#Try these params: python3 BPTT.py  -batchSize=4 -maxEpochs=500 -momentum=0.9 -eta=1E-3
 	gru = DiscreteGRU(xDim, hiddenUnits, yDim, numHiddenLayers=1, batchFirst=True)
 	print("Training...")
 	gru.train(batchedData, epochs=maxEpochs, batchSize=miniBatchSize, torchEta=eta)

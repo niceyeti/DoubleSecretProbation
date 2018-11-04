@@ -21,6 +21,7 @@ class DiscreteGRU(torch.nn.Module):
 		self._optimizerBuilder = OptimizerFactory()
 
 		self._batchFirst = batchFirst
+		self.xdim = xdim
 		self.hdim = hdim
 		self.numHiddenLayers = numHiddenLayers
 		self.gru = torch.nn.GRU(input_size=xdim, hidden_size=hdim, num_layers=numHiddenLayers, batch_first=self._batchFirst)
@@ -28,9 +29,7 @@ class DiscreteGRU(torch.nn.Module):
 		self.softmax = torch.nn.LogSoftmax(dim=1)
 		self._initWeights()
 
-	def _initWeights(self):
-
-		initRange = 1.0
+	def _initWeights(self, initRange=1.0):
 		#print("all: {}".format(self.gru.all_weights))
 		for gruWeights in self.gru.all_weights:
 			for weight in gruWeights:
@@ -39,14 +38,13 @@ class DiscreteGRU(torch.nn.Module):
 
 	def forward(self, x_t, hidden=None):
 		"""
-		@X_t: Input of size ____.
-		@hidden: Hidden states of size ____, or None, which if passed will initialize hidden states to 0.
+		@X_t: Input of size (batchSize x seqLen x xdim).
+		@hidden: Hidden states of size (1 x batchSize x hdim), or None, which if passed will initialize hidden states to 0.
 		"""
-
 		z_t, hidden = self.gru(x_t, hidden) #@output contains all hidden states [1..t], whereas @hidden only contains the final hidden state
 		s_t = self.linear(z_t)
 		output = self.softmax(s_t)
-		print("z_t size: {} s_t size: {} output.size(): {}".format(z_t.size(), s_t.size(), output.size()))
+		print("x_t: {}  z_t size: {} s_t size: {} output.size(): {} hidden: {}".format(x_t.size(), z_t.size(), s_t.size(), output.size(), hidden.size()))
 
 		return output, hidden
 
@@ -54,17 +52,44 @@ class DiscreteGRU(torch.nn.Module):
 	The axes semantics are (num_layers, minibatch_size, hidden_dim).
 	Returns @batchSize copies of the zero vector as the initial state
 	"""
-	def initHidden(self, batchSize, numHiddenLayers=1, batchFirst=False):
-		"""
-		#return Variable(torch.zeros(1, batchSize, self.hidden_size))
+	def initHidden(self, batchSize, numHiddenLayers=1, batchFirst=False, requiresGrad=True):
 		if batchFirst:
-			hidden = torch.zeros(batchSize, numHiddenLayers, self.hdim)
+			hidden = torch.zeros(batchSize, numHiddenLayers, self.hdim, requires_grad=requiresGrad)
 		else:
-			hidden = torch.zeros(numHiddenLayers, seqLen, self.hdim)
+			hidden = torch.zeros(numHiddenLayers, batchSize, self.hdim, requires_grad=requiresGrad)
 		
 		return hidden
+
+	def initRandHidden(self, batchSize, numHiddenLayers=1, batchFirst=False, scale=1.0, requiresGrad=True):
 		"""
-		return torch.zeros(numHiddenLayers, batchSize, self.hdim)
+		Initializes a random hidden state. This is for tasks like generation, from
+		a random initial hidden state.
+
+		@scale: Output of torch.randn contains numbers drawn from a zero mean 1-stdev Gaussian; @scale scales these to
+		a different scale.
+		"""
+		if batchFirst:
+			hidden = scale * torch.randn(batchSize, numHiddenLayers, self.hdim, requires_grad=requiresGrad)
+		else:
+			hidden = scale * torch.randn(numHiddenLayers, batchSize, self.hdim, requires_grad=requiresGrad)
+		
+		return hidden
+
+	"""
+	def generate(self, reverseEncoding, numSeqs=1, seqLen=50):
+		for seq in range(numSeqs):
+			#reset network
+			hidden = self.initHidden(1, self.numHiddenLayers, self.hdim, requiresGrad=False)
+			x_in = torch.zeros(self.xdim, , requiresGrad=False)
+			for _ in range(seqLen):
+				
+				print("")
+
+		self.gru = torch.nn.GRU(input_size=xdim, hidden_size=hdim, num_layers=numHiddenLayers, batch_first=self._batchFirst)
+		self.linear = torch.nn.Linear(hdim, ydim)
+		self.softmax = torch.nn.LogSoftmax(dim=1)
+		self._initWeights()
+	"""
 
 	def train(self, batchedData, epochs, batchSize=5, torchEta=1E-2, momentum=0.9, optimizer="sgd"):
 		"""
@@ -103,14 +128,6 @@ class DiscreteGRU(torch.nn.Module):
 		losses = []
 		#epochs = epochs * len(batchedData) // batchSize
 		for epoch in range(epochs):
-			"""
-			if epoch > 0:
-				print("Epoch {}, avg loss of last {} epochs: {}".format(epoch, k, sum(losses[-k:])/float(len(losses[-k:]))))
-				if epoch == 300:
-					torchEta = 1E-4
-				if epoch == 450:
-					torchEta = 5E-5
-			"""
 			#x_batch, y_batch = self._getMinibatch(dataset, batchSize)
 			x_batch, y_batch = batchedData[random.randint(0,len(batchedData)-1)]
 			batchSeqLen = x_batch.size()[1]  #the padded length of each training sequence in this batch
@@ -127,9 +144,10 @@ class DiscreteGRU(torch.nn.Module):
 			#print("targets: {} {}".format(batchTargets.size(), batchTargets))
 			loss = criterion(y_pred, batchTargets)
 			epochLoss = loss.item()
-			print(epoch, epochLoss)
 			losses.append(epochLoss)
-
+			if epoch % 50 == 49: #print loss eveyr 50 epochs
+				avgLoss = sum(losses[epoch-k:])/float(k)
+				print(epoch, avgLoss)
 			# Zero gradients, perform a backward pass, and update the weights.
 			optimizer.zero_grad()
 			loss.backward()
