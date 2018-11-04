@@ -211,12 +211,11 @@ def main():
 	rnn.generate(reverseEncoding)
 	"""
 
-
 	#Try these params: python3 BPTT.py  -batchSize=4 -maxEpochs=500 -momentum=0.9 -eta=1E-3
 	gru = DiscreteGRU(xDim, hiddenUnits, yDim, numHiddenLayers=1, batchFirst=True)
 	print("Training...")
 	gru.train(batchedData, epochs=maxEpochs, batchSize=miniBatchSize, torchEta=eta)
-	#gru.generate(reverseEncoding)
+	gru.generate(reverseEncoding,10,100)
 
 	"""
 	rnn = torch.nn.RNN(input_size=xDim, hidden_size=hiddenUnits, num_layers=1, nonlinearity='tanh', bias=True)

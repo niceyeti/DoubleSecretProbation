@@ -24,6 +24,7 @@ class DiscreteGRU(torch.nn.Module):
 		self.xdim = xdim
 		self.hdim = hdim
 		self.numHiddenLayers = numHiddenLayers
+		#build the network architecture
 		self.gru = torch.nn.GRU(input_size=xdim, hidden_size=hdim, num_layers=numHiddenLayers, batch_first=self._batchFirst)
 		self.linear = torch.nn.Linear(hdim, ydim)
 		self.softmax = torch.nn.LogSoftmax(dim=1)
@@ -44,7 +45,7 @@ class DiscreteGRU(torch.nn.Module):
 		z_t, hidden = self.gru(x_t, hidden) #@output contains all hidden states [1..t], whereas @hidden only contains the final hidden state
 		s_t = self.linear(z_t)
 		output = self.softmax(s_t)
-		print("x_t: {}  z_t size: {} s_t size: {} output.size(): {} hidden: {}".format(x_t.size(), z_t.size(), s_t.size(), output.size(), hidden.size()))
+		#print("x_t: {}  z_t size: {} s_t size: {} output.size(): {} hidden: {}".format(x_t.size(), z_t.size(), s_t.size(), output.size(), hidden.size()))
 
 		return output, hidden
 
@@ -75,21 +76,20 @@ class DiscreteGRU(torch.nn.Module):
 		
 		return hidden
 
-	"""
 	def generate(self, reverseEncoding, numSeqs=1, seqLen=50):
 		for seq in range(numSeqs):
 			#reset network
-			hidden = self.initHidden(1, self.numHiddenLayers, self.hdim, requiresGrad=False)
-			x_in = torch.zeros(self.xdim, , requiresGrad=False)
+			hidden = self.initRandHidden(1, self.numHiddenLayers, requiresGrad=False)
+			x_in = torch.zeros(1, 1, self.xdim, requires_grad=False)
+			#x_in[0][0][ random.randint(0,self.xdim-1) ] = 1.0
 			for _ in range(seqLen):
-				
-				print("")
-
-		self.gru = torch.nn.GRU(input_size=xdim, hidden_size=hdim, num_layers=numHiddenLayers, batch_first=self._batchFirst)
-		self.linear = torch.nn.Linear(hdim, ydim)
-		self.softmax = torch.nn.LogSoftmax(dim=1)
-		self._initWeights()
-	"""
+				print("x: {}".format(x_in))
+				x_in, hidden = self(x_in, hidden)
+				#print("Output dim: {}".format(output.size()))
+				index = int(x_in.argmax(dim=2)[0][0])
+				letter = reverseEncoding[index]
+				#print(letter, end="")
+			print("")
 
 	def train(self, batchedData, epochs, batchSize=5, torchEta=1E-2, momentum=0.9, optimizer="sgd"):
 		"""
