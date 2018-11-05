@@ -37,15 +37,22 @@ class DiscreteGRU(torch.nn.Module):
 				weight.data.uniform_(-initRange, initRange)
 		self.linear.weight.data.uniform_(-initRange, initRange)
 
-	def forward(self, x_t, hidden=None):
+	def forward(self, x_t, hidden=None, verbose=False):
 		"""
 		@X_t: Input of size (batchSize x seqLen x xdim).
 		@hidden: Hidden states of size (1 x batchSize x hdim), or None, which if passed will initialize hidden states to 0.
+
+		Returns: @putput of size (batchSize x seqLen ydim), @hidden of size (numHiddenLayers x batchSize x hdim)
 		"""
 		z_t, hidden = self.gru(x_t, hidden) #@output contains all hidden states [1..t], whereas @hidden only contains the final hidden state
 		s_t = self.linear(z_t)
 		output = self.softmax(s_t)
 		#print("x_t: {}  z_t size: {} s_t size: {} output.size(): {} hidden: {}".format(x_t.size(), z_t.size(), s_t.size(), output.size(), hidden.size()))
+		if verbose:
+			print("x: {} hidden: {} z_t: {} s: {} output: {}".format(x_t, hidden, z_t, s_t, output))
+
+
+		#print("Output: {}".format(output))
 
 		return output, hidden
 
@@ -76,18 +83,28 @@ class DiscreteGRU(torch.nn.Module):
 		
 		return hidden
 
-	def generate(self, reverseEncoding, numSeqs=1, seqLen=50):
+	def generate(self, reverseEncoding, numSeqs=1, seqLen=50, stochastic=False):
+		"""
+		@numSeqs: Number of sequences to generate
+		@seqLen: The length of each generated sequence, before stopping generation
+		@stochastic: NOT IMPLEMENTED If True, then next character is sampled according to the distribution
+					over output letters, as opposed to selecting the maximum probability prediction.
+		"""
 		for seq in range(numSeqs):
 			#reset network
-			hidden = self.initRandHidden(1, self.numHiddenLayers, requiresGrad=False)
+			hidden = self.initHidden(1, self.numHiddenLayers, requiresGrad=False)
 			x_in = torch.zeros(1, 1, self.xdim, requires_grad=False)
-			#x_in[0][0][ random.randint(0,self.xdim-1) ] = 1.0
+			x_in[0][0][ random.randint(0,self.xdim-1) ] = 1.0
 			for _ in range(seqLen):
-				print("x: {}".format(x_in))
-				x_in, hidden = self(x_in, hidden)
+				print("x: {}\nhidden: {}".format(x_in, hidden))
+				x_in, hidden = self(x_in, hidden, verbose=True)
+				print("x: {}\nhidden: {}".format(x_in, hidden))
+				#output of logsoftmax are log probabilities, so to get the max prediction, get max of the output vector
+				maxIndex = int(x_in.argmax(dim=2)[0][0])
+				x_in = x_in.zero_()
+				x_in[0][0][maxIndex] = 1.0
 				#print("Output dim: {}".format(output.size()))
-				index = int(x_in.argmax(dim=2)[0][0])
-				letter = reverseEncoding[index]
+				letter = reverseEncoding[maxIndex]
 				#print(letter, end="")
 			print("")
 
@@ -135,7 +152,7 @@ class DiscreteGRU(torch.nn.Module):
 			#print("Hidden: {}".format(hidden.size()))
 			# Forward pass: Compute predicted y by passing x to the model
 			#print("x batch size: {} hidden size: {} y_batch size: {}".format(x_batch.size(), hidden.size(), y_batch.size()))
-			y_pred, hidden = self(x_batch, hidden)
+			y_pred, hidden = self(x_batch, hidden, verbose=False)
 			#print("Y pred size: {} Hidden size: {} y_batch size: {}".format(y_pred.size(), hidden.size(), y_batch.size()))
 
 			# Compute and print loss. As a one-hot target nl-loss, the target parameter is a vector of indices representing the index
