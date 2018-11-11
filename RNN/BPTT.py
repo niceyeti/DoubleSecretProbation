@@ -215,7 +215,7 @@ def main():
 	gru = DiscreteGRU(xDim, hiddenUnits, yDim, numHiddenLayers=1, batchFirst=True)
 	print("Training...")
 	gru.train(batchedData, epochs=maxEpochs, batchSize=miniBatchSize, torchEta=eta)
-	gru.generate(reverseEncoding,1,4)
+	gru.generate(reverseEncoding,10,30)
 
 	"""
 	rnn = torch.nn.RNN(input_size=xDim, hidden_size=hiddenUnits, num_layers=1, nonlinearity='tanh', bias=True)

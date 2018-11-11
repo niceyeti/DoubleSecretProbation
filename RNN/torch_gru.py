@@ -27,7 +27,9 @@ class DiscreteGRU(torch.nn.Module):
 		#build the network architecture
 		self.gru = torch.nn.GRU(input_size=xdim, hidden_size=hdim, num_layers=numHiddenLayers, batch_first=self._batchFirst)
 		self.linear = torch.nn.Linear(hdim, ydim)
-		self.softmax = torch.nn.LogSoftmax(dim=1)
+		#LogSoftmax @dim refers to the dimension along which LogSoftmax (a function, not a layer) will apply softmax.
+		# dim=2, since the output of the network is size (batchSize x seqLen x ydim) and we want to calculate softmax at each output, hence dimension 2.
+		self.softmax = torch.nn.LogSoftmax(dim=2)
 		self._initWeights()
 
 	def _initWeights(self, initRange=1.0):
@@ -42,19 +44,19 @@ class DiscreteGRU(torch.nn.Module):
 		@X_t: Input of size (batchSize x seqLen x xdim).
 		@hidden: Hidden states of size (1 x batchSize x hdim), or None, which if passed will initialize hidden states to 0.
 
-		Returns: @putput of size (batchSize x seqLen ydim), @hidden of size (numHiddenLayers x batchSize x hdim)
+		Returns: @output of size (batchSize x seqLen x ydim), @z_t (new hidden state) of size (batchSize x seqLen x hdim)
+		NOTE: Note that batchSize is in different locations of @hidden on input vs output
 		"""
 		z_t, hidden = self.gru(x_t, hidden) #@output contains all hidden states [1..t], whereas @hidden only contains the final hidden state
 		s_t = self.linear(z_t)
 		output = self.softmax(s_t)
-		#print("x_t: {}  z_t size: {} s_t size: {} output.size(): {} hidden: {}".format(x_t.size(), z_t.size(), s_t.size(), output.size(), hidden.size()))
+		#print("x_t size: {}  z_t size: {} s_t size: {} output.size(): {} hidden: {}".format(x_t.size(), z_t.size(), s_t.size(), output.size(), hidden.size()))
 		if verbose:
 			print("x: {} hidden: {} z_t: {} s: {} output: {}".format(x_t, hidden, z_t, s_t, output))
 
-
 		#print("Output: {}".format(output))
 
-		return output, hidden
+		return output, z_t
 
 	"""
 	The axes semantics are (num_layers, minibatch_size, hidden_dim).
@@ -90,23 +92,25 @@ class DiscreteGRU(torch.nn.Module):
 		@stochastic: NOT IMPLEMENTED If True, then next character is sampled according to the distribution
 					over output letters, as opposed to selecting the maximum probability prediction.
 		"""
-		for seq in range(numSeqs):
+		for _ in range(numSeqs):
 			#reset network
-			hidden = self.initHidden(1, self.numHiddenLayers, requiresGrad=False)
-			x_in = torch.zeros(1, 1, self.xdim, requires_grad=False)
-			x_in[0][0][ random.randint(0,self.xdim-1) ] = 1.0
+			hidden = self.initHidden(1, self.numHiddenLayers, requiresGrad=True)
+			x_in = torch.zeros(1, 1, self.xdim, requires_grad=True)
+			maxIndex = random.randint(0,self.xdim-1)
+			x_in[0][0][ maxIndex ] = 1.0
+			s = reverseEncoding[maxIndex]
 			for _ in range(seqLen):
-				print("x: {}\nhidden: {}".format(x_in, hidden))
-				x_in, hidden = self(x_in, hidden, verbose=True)
-				print("x: {}\nhidden: {}".format(x_in, hidden))
+				#print("1 x: {} {}\nhidden: {} {}".format(x_in.size(), x_in, hidden.size(), hidden))
+				x_in, hidden = self(x_in, hidden, verbose=False)
+				print("2 x: {} {}\nhidden: {} {}".format(x_in.size(), x_in, hidden.size(), hidden))
 				#output of logsoftmax are log probabilities, so to get the max prediction, get max of the output vector
 				maxIndex = int(x_in.argmax(dim=2)[0][0])
 				x_in = x_in.zero_()
 				x_in[0][0][maxIndex] = 1.0
 				#print("Output dim: {}".format(output.size()))
-				letter = reverseEncoding[maxIndex]
-				#print(letter, end="")
-			print("")
+				s += reverseEncoding[maxIndex]
+				#exit()
+			print(s+"<")
 
 	def train(self, batchedData, epochs, batchSize=5, torchEta=1E-2, momentum=0.9, optimizer="sgd"):
 		"""
@@ -154,7 +158,6 @@ class DiscreteGRU(torch.nn.Module):
 			#print("x batch size: {} hidden size: {} y_batch size: {}".format(x_batch.size(), hidden.size(), y_batch.size()))
 			y_pred, hidden = self(x_batch, hidden, verbose=False)
 			#print("Y pred size: {} Hidden size: {} y_batch size: {}".format(y_pred.size(), hidden.size(), y_batch.size()))
-
 			# Compute and print loss. As a one-hot target nl-loss, the target parameter is a vector of indices representing the index
 			# of the target value at each time step t.
 			batchTargets = y_batch.argmax(dim=1) # y_batch is size (@batchSize x seqLen x ydim). This gets the target indices (argmax of the output) at every timestep t.
