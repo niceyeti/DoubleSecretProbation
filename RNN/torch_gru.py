@@ -85,12 +85,47 @@ class DiscreteGRU(torch.nn.Module):
 		
 		return hidden
 
-	def generate(self, reverseEncoding, numSeqs=1, seqLen=50, stochastic=False):
+	def sampleMaxIndex(self, v, stochastic=False):
+		"""
+		Given a stochastic vector (1 x n) vector @v, returns the max index of the vector
+		under one of two strategies:
+			@stochastic = false: just return the index of the max value in the vector (e.g. argmax(v))
+			@stochastic = true: return the index sampled from the distribution of the vector. This
+			is done by selecting a uniform random number in [0,1.0], then returning the index containing
+			this number in its range. If v = [0.3, 0.3, 0.4] and r=0.5, returns 1, since the 0.5 occurs
+			in the span of the second entry, [0.3-0.6).
+		"""
+		maxIndex = 0
+		
+		if not stochastic:
+			#output of logsoftmax are log probabilities, so max prediction is max of output vector
+			maxIndex = int(v.argmax(dim=0))
+		else:
+			#choose maxIndex stochastically according ot the distribution of the output
+			p = torch.exp(v)  #get the output distribution as non-log probs
+			print("P: ",p,p.size())
+			r = torch.rand(1)[0]
+			c = 0.0
+			maxIndex = 0
+			for i in range(p.size()[0]):
+				if c >= r:
+					print("Breaking at ",i," of ",p.size())
+					maxIndex = i
+					break
+				c += p[i]
+
+		return maxIndex
+
+	def generate(self, reverseEncoding, numSeqs=1, seqLen=50, stochastic=False, allowRecurrentNoise=False):
 		"""
 		@numSeqs: Number of sequences to generate
 		@seqLen: The length of each generated sequence, before stopping generation
 		@stochastic: NOT IMPLEMENTED If True, then next character is sampled according to the distribution
 					over output letters, as opposed to selecting the maximum probability prediction.
+		@allowRecurrentNoise: Just an interesting parameter to observe: during generation, the output y'
+		becomes the input to the next stage, and canonically should be one-hotted such that only the max
+		entry is 1.0, and all others zero. However you can instead not one-hot the vector, leaving other noise
+		in the vector. No idea what this will do, its just interesting to leave in.
 		"""
 		for _ in range(numSeqs):
 			#reset network
@@ -100,16 +135,16 @@ class DiscreteGRU(torch.nn.Module):
 			x_in[0][0][ maxIndex ] = 1.0
 			s = reverseEncoding[maxIndex]
 			for _ in range(seqLen):
-				#print("1 x: {} {}\nhidden: {} {}".format(x_in.size(), x_in, hidden.size(), hidden))
+				#@x_in output of size (1 x 1 x ydim), @z_t (new hidden state) of size (1 x 1 x hdim)
 				x_in, hidden = self(x_in, hidden, verbose=False)
-				print("2 x: {} {}\nhidden: {} {}".format(x_in.size(), x_in, hidden.size(), hidden))
-				#output of logsoftmax are log probabilities, so to get the max prediction, get max of the output vector
-				maxIndex = int(x_in.argmax(dim=2)[0][0])
-				x_in = x_in.zero_()
-				x_in[0][0][maxIndex] = 1.0
-				#print("Output dim: {}".format(output.size()))
+				maxIndex = self.sampleMaxIndex(x_in[0][0], stochastic)
+
+				if not allowRecurrentNoise:
+					x_in = x_in.zero_()
+					x_in[0][0][maxIndex] = 1.0
+
 				s += reverseEncoding[maxIndex]
-				#exit()
+
 			print(s+"<")
 
 	def train(self, batchedData, epochs, batchSize=5, torchEta=1E-2, momentum=0.9, optimizer="sgd"):
@@ -143,19 +178,16 @@ class DiscreteGRU(torch.nn.Module):
 		#swap different optimizers per training regime
 		optimizer = self._optimizerBuilder.GetOptimizer(parameters=self.parameters(), lr=torchEta, momentum=momentum, optimizer="adam")
 
-		#optimizer = torch.optim.SGD(self.parameters(), lr=torchEta, momentum=0.9)
 		ct = 0
 		k = 20
 		losses = []
 		#epochs = epochs * len(batchedData) // batchSize
 		for epoch in range(epochs):
-			#x_batch, y_batch = self._getMinibatch(dataset, batchSize)
 			x_batch, y_batch = batchedData[random.randint(0,len(batchedData)-1)]
 			batchSeqLen = x_batch.size()[1]  #the padded length of each training sequence in this batch
 			hidden = self.initHidden(batchSize, self.numHiddenLayers)
 			#print("Hidden: {}".format(hidden.size()))
 			# Forward pass: Compute predicted y by passing x to the model
-			#print("x batch size: {} hidden size: {} y_batch size: {}".format(x_batch.size(), hidden.size(), y_batch.size()))
 			y_pred, hidden = self(x_batch, hidden, verbose=False)
 			#print("Y pred size: {} Hidden size: {} y_batch size: {}".format(y_pred.size(), hidden.size(), y_batch.size()))
 			# Compute and print loss. As a one-hot target nl-loss, the target parameter is a vector of indices representing the index
