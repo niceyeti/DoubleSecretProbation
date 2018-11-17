@@ -200,9 +200,6 @@ def main():
 	print("Shuffling dataset...")
 	random.shuffle(dataset)
 	batchedData = convertToTensorBatchData(dataset, batchSize=miniBatchSize)
-	#randomize the dataset
-	print("Batch[0]: {}".format(batchedData[0]))
-	#exit()
 
 	"""
 	rnn = DiscreteSymbolRNN(xDim, hiddenUnits, yDim)
@@ -211,25 +208,12 @@ def main():
 	rnn.generate(reverseEncoding)
 	"""
 
-	#Try these params: python3 BPTT.py  -batchSize=4 -maxEpochs=500 -momentum=0.9 -eta=1E-3
+	#Try these params: python3 BPTT.py  -batchSize=4 -maxEpochs=6000 -momentum=0.9 -eta=1E-3
 	gru = DiscreteGRU(xDim, hiddenUnits, yDim, numHiddenLayers=1, batchFirst=True)
 	print("Training...")
 	gru.train(batchedData, epochs=maxEpochs, batchSize=miniBatchSize, torchEta=eta)
-	gru.generate(reverseEncoding,10,30,stochastic=True)
-
-	"""
-	rnn = torch.nn.RNN(input_size=xDim, hidden_size=hiddenUnits, num_layers=1, nonlinearity='tanh', bias=True)
-	#hdim = 128
-	#rnn = RNN(n_letters, n_hidden, n_categories)
-	#convert the dataset to tensor form for pytorch
-	#input = torch.randn(5, 3, 10)   <-- input to rnn, eg 'rnn(input, h0)' is of size (seq_len x batch x input_size)
-	while True:
-		#stochastically build a mini-batch of examples
-		batchSize = 3
-		batch = [dataset[random.randint(0,len(dataset)-1)] for i in range(batchSize)]
-		x_in = [[pair[0] for pair in seq] for seq in batch]
-		y_out = [[pair[1] for pair in seq] for seq in batch]
-	"""
+	gru.generate(reverseEncoding,30,30,stochastic=True)
+	gru.generate(reverseEncoding,30,30,stochastic=False)
 
 if __name__ == "__main__":
 	main()

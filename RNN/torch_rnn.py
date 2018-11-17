@@ -1,9 +1,10 @@
 """
-A simple vanilla rnn demonstration for discrete sequential prediction using pytorch. This is just for learning pytorch.
+A simple vanilla rnn demonstration for discrete sequential prediction using pytorch.
+
 RNN model: Given an input symbol and the current hidden state, predict the next character. So we have
 discrete one-hot input, and discrete one-hot output.
 
-This is a manually defined training version for learning torch, and shouldn't be used. Use the torch
+NOTE: This is a manually defined rnn version for learning torch layers, and shouldn't be used. Use the torch
 built-in RNN cell instead.
 """
 

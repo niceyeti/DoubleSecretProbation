@@ -3,7 +3,43 @@ A simple gru demonstration for discrete sequential prediction using pytorch. Thi
 RNN model: Given an input symbol and the current hidden state, predict the next character. So we have
 discrete one-hot input, and discrete one-hot output.
 
-https://pytorch.org/tutorials/beginner/nlp/sequence_models_tutorial.html
+Sample output:
+	
+	python3 BPTT.py -batchSize=4 -maxEpochs=2000 -momentum=0.9 -eta=1E-3 -hiddenUnits=25
+	...
+	1649 2.7261360764503477
+	1699 2.703751826286316
+	1749 2.6933610081672668
+	1799 2.730964684486389
+	1849 2.6367283701896667
+	1899 2.6822508335113526
+	1949 2.603130030632019
+	1999 2.6193048477172853
+	Generating 10 sequences with stochastic=True
+	^ztf^^e^^lzyt^q^zvfff^qvcjzxqmz<
+	ydpzms^xsfbtjjjtjbpswdvpambawjq<
+	ioovff^n^u^rt^wxamvbvzb^w^lpvwf<
+	^npsbsu^zasaotaza^fjqvftamawpzz<
+	ts^^lnwfawnuhaoszzpmzhpmzzzaovp<
+	mfp^h^luhf^uoom^hp^zazppztpmfps<
+	jjjectpfmauswjznvfieovbvatodmva<
+	id bfmfuh$hpzmeoumjnptjjcpnpffz<
+	wet^gv^t^y^xjljjbowfmvtit^hjxuw<
+	kbqeouomoooooemgujeodoqvxzpz^da<
+	Generating 10 sequences with stochastic=False
+	zor wastherryound wasther$$$dly<
+	ver and thering ther$$d$$d$$$d$<
+	oun waskering$$drorky$$$$$d$$$$<
+	noverry wasker$$d$$d$$$d$$$$d$$<
+	ran her wastherr$$d$$d$$$$$$$$$<
+	wand wastherryound$urker$$$d$$$<
+	kand wastherring ther$$$d$$$$d$<
+	ran her wastherr$$d$$d$$$$$$$$$<
+	ghe wastherryound$urrery$$$d$$$<
+	so waskering$doullyour$$$d$$$$$<
+
+
+
 """
 
 import torch
@@ -17,9 +53,8 @@ torch_default_dtype=torch.float32
 class DiscreteGRU(torch.nn.Module):
 	def __init__(self, xdim, hdim, ydim, numHiddenLayers, batchFirst):
 		super(DiscreteGRU, self).__init__()
-
+		
 		self._optimizerBuilder = OptimizerFactory()
-
 		self._batchFirst = batchFirst
 		self.xdim = xdim
 		self.hdim = hdim
@@ -53,8 +88,6 @@ class DiscreteGRU(torch.nn.Module):
 		#print("x_t size: {}  z_t size: {} s_t size: {} output.size(): {} hidden: {}".format(x_t.size(), z_t.size(), s_t.size(), output.size(), hidden.size()))
 		if verbose:
 			print("x: {} hidden: {} z_t: {} s: {} output: {}".format(x_t, hidden, z_t, s_t, output))
-
-		#print("Output: {}".format(output))
 
 		return output, z_t
 
@@ -103,13 +136,11 @@ class DiscreteGRU(torch.nn.Module):
 		else:
 			#choose maxIndex stochastically according ot the distribution of the output
 			p = torch.exp(v)  #get the output distribution as non-log probs
-			print("P: ",p,p.size())
 			r = torch.rand(1)[0]
 			c = 0.0
 			maxIndex = 0
 			for i in range(p.size()[0]):
 				if c >= r:
-					print("Breaking at ",i," of ",p.size())
 					maxIndex = i
 					break
 				c += p[i]
@@ -118,6 +149,9 @@ class DiscreteGRU(torch.nn.Module):
 
 	def generate(self, reverseEncoding, numSeqs=1, seqLen=50, stochastic=False, allowRecurrentNoise=False):
 		"""
+		
+		@reverseEncoding: A dict mapping integer indices to output strings, for reversing one-hot encodings back
+						  into their domain representation (letters, words, etc).
 		@numSeqs: Number of sequences to generate
 		@seqLen: The length of each generated sequence, before stopping generation
 		@stochastic: NOT IMPLEMENTED If True, then next character is sampled according to the distribution
@@ -127,21 +161,23 @@ class DiscreteGRU(torch.nn.Module):
 		entry is 1.0, and all others zero. However you can instead not one-hot the vector, leaving other noise
 		in the vector. No idea what this will do, its just interesting to leave in.
 		"""
+		print("Generating {} sequences with stochastic={}".format(numSeqs,stochastic))
+
 		for _ in range(numSeqs):
 			#reset network
 			hidden = self.initHidden(1, self.numHiddenLayers, requiresGrad=True)
-			x_in = torch.zeros(1, 1, self.xdim, requires_grad=True)
+			x_t = torch.zeros(1, 1, self.xdim, requires_grad=True)
 			maxIndex = random.randint(0,self.xdim-1)
-			x_in[0][0][ maxIndex ] = 1.0
+			x_t[0][0][ maxIndex ] = 1.0
 			s = reverseEncoding[maxIndex]
 			for _ in range(seqLen):
 				#@x_in output of size (1 x 1 x ydim), @z_t (new hidden state) of size (1 x 1 x hdim)
-				x_in, hidden = self(x_in, hidden, verbose=False)
-				maxIndex = self.sampleMaxIndex(x_in[0][0], stochastic)
+				x_t, hidden = self(x_t, hidden, verbose=False)
+				maxIndex = self.sampleMaxIndex(x_t[0][0], stochastic)
 
 				if not allowRecurrentNoise:
-					x_in = x_in.zero_()
-					x_in[0][0][maxIndex] = 1.0
+					x_t = x_t.zero_()
+					x_t[0][0][maxIndex] = 1.0
 
 				s += reverseEncoding[maxIndex]
 
@@ -181,22 +217,19 @@ class DiscreteGRU(torch.nn.Module):
 		ct = 0
 		k = 20
 		losses = []
-		#epochs = epochs * len(batchedData) // batchSize
+
 		for epoch in range(epochs):
 			x_batch, y_batch = batchedData[random.randint(0,len(batchedData)-1)]
 			batchSeqLen = x_batch.size()[1]  #the padded length of each training sequence in this batch
 			hidden = self.initHidden(batchSize, self.numHiddenLayers)
-			#print("Hidden: {}".format(hidden.size()))
 			# Forward pass: Compute predicted y by passing x to the model
 			y_pred, hidden = self(x_batch, hidden, verbose=False)
-			#print("Y pred size: {} Hidden size: {} y_batch size: {}".format(y_pred.size(), hidden.size(), y_batch.size()))
+			# y_batch is size (@batchSize x seqLen x ydim). This gets the target indices (argmax of the output) at every timestep t.
+			batchTargets = y_batch.argmax(dim=1)
 			# Compute and print loss. As a one-hot target nl-loss, the target parameter is a vector of indices representing the index
 			# of the target value at each time step t.
-			batchTargets = y_batch.argmax(dim=1) # y_batch is size (@batchSize x seqLen x ydim). This gets the target indices (argmax of the output) at every timestep t.
-			#print("targets: {} {}".format(batchTargets.size(), batchTargets))
 			loss = criterion(y_pred, batchTargets)
-			epochLoss = loss.item()
-			losses.append(epochLoss)
+			losses.append(loss.item())
 			if epoch % 50 == 49: #print loss eveyr 50 epochs
 				avgLoss = sum(losses[epoch-k:])/float(k)
 				print(epoch, avgLoss)
