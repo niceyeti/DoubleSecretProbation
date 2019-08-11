@@ -37,6 +37,14 @@ Weirdness:
     Unit testing: microsoft test frameworks often include a TestMethod timeout setting, provided via some config file. Just goolge 'er.
 
 
+Data structures:
+    -Use builtin concurrent data structures wherever possible for efficiency: ConcurrentDictionary, etc.
+    These often generate immutable copies of collections, such as on iteration of the collection.
+    Key properties of immutable collections:
+        *An instance of an immutable collection never changes.
+        *Since it never changes, it is naturally threadsafe.
+        *When you call a modifying method on an immutable collection, the modified col‐lection is returned
+
 
 (CancellationToken a better api for implementing timeouts)
 
