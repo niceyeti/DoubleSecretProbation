@@ -1,0 +1,45 @@
+Testing strategies for async methods:
+    1) Simply to simulate delays, or async behavior, use a delay:
+        await Task.Delay(nSec);
+    2) To call an asynchronous method that immediately returns a result (e.g. for unit test)
+        await Task.FromResult(13); //immediately returns integer result 13, but could be any object
+    3) Testing exception behavior/paths within code:
+        Create tasks that immediately throw exceptions.
+
+Weirdness:
+    Waiting on multiple tasks, the first completed task must be awaited in addition to the WaitAny() task:
+
+    ...
+        Task<byte[]> downloadTaskA = httpClient.GetByteArrayAsync(urlA);
+        Task<byte[]> downloadTaskB = httpClient.GetByteArrayAsync(urlB);  // Wait for either of the tasks to complete.    
+        Task<byte[]> completedTask = await Task.WhenAny(downloadTaskA, downloadTaskB); // Return the length of the data retrieved from that URL.
+        byte[] data = await completedTask;
+        
+        return data.Length; 
+    }
+
+    -If the other tasks are not awaited or cancelled, they are 'abandoned': they will run to completion but their results will be ignored.
+    -Any exception in @completeTask is not propagated when returned from WhenAny, so you should also await @completedTask as above.
+    This is important!! It would be very easy to do this instead:
+            var completedTask = await Task.WhenAny(task1, task2...)
+            var result = completedTask.Result; // Does not propagate exceptions from @completedTask!!
+
+
+    Best practice is to call ConfigureAwait(false) on an waited task.
+        await Task.Delay(TimeSpan.FromSeconds(1)).ConfigureAwait(false);
+    This frees up the context in which 'await' was initially called, and can be important if that is the UI context to prevent many
+    continuations running on the UI context.
+
+
+    Exception handling: using await properly and correctly, exceptions will be propagated to the calling context of an await'ed function.
+    *Dont use 'async void', use 'async Task' instead. Returning Task's is always more testable as well.
+
+    Unit testing: microsoft test frameworks often include a TestMethod timeout setting, provided via some config file. Just goolge 'er.
+
+
+
+(CancellationToken a better api for implementing timeouts)
+
+
+
+
