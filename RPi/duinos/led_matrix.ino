@@ -100,10 +100,10 @@ void writeLedRow(int row, int col, bool[8] rowState) {
     // the high 8 bits represent the row and the low 8 bits the column.
     ushort rowBits = 0;
     for(int i = 7; i >= 0; i--) {
-        rowBits |= ((rowState[i] ? 1 : 0) << i);
+        rowBits |= ((rowState[i] ? HIGH : LOW) << i);
     }
 
-    ushort colBits = 1 << col;
+    ushort colBits = HIGH << col;
 
     ushort data = (rowBits << 8) | colBits;
 
@@ -113,10 +113,11 @@ void writeLedRow(int row, int col, bool[8] rowState) {
 
 // Writes the passed state to a 8x8 led matrix.
 void WriteMatrix(bool[8][8] state) {
-    for(int row = 0; row < 8; row++){
-        for(int col = 0; col < 8; col++){
+    for(int row = 0; row < 8; row++) {
+        for(int col = 0; col < 8; col++) {
             writeLed(row, col, state[row][col]);
             delay(50);
+            // TODO: shut off after writing
         }
     }
 }
@@ -127,22 +128,17 @@ void test() {
   //Write(7, 8);
   
   for(int i = 0; i < 256; i++) {
-    Write(i, 8);
+    //Write(i, 8);
+    Write(i, 16);
     delay(100);
     //ClearOutput();
   }
-  
 }
-
-
 
 
 void loop() {
   test();
 }
-
-
-
 
 
 // A rising edge of the clk: low -> high.
