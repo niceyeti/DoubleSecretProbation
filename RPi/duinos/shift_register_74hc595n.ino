@@ -1,17 +1,19 @@
 // Duino code for 74HC595N
 
 // data
-int SER = 2;
+const int SER = 2;
 // shift register clk. This is SRCLK or SHCP in the lit; RCLK is instead for storing/latching in the register.
-int CLK = 3;
+const int CLK = 3;
 // Latch, aka RCLK (also STCP) for 74hc595n
-int LATCH = 4;
+const int LATCH = 4;
 // shift register clear. "INV" means negation: low asserts clearing, high is 'not-clear'.
-int SRCLR_INV = 5;
+const int SRCLR_INV = 5;
+// Minmum clk edge duration. ~100 ns minimum according to the datasheet, 1000 ns oughta do it
+const int CLK_EDGE_US = 1;
 
 
 // See 'function table' for basic functionality: https://www.ti.com/lit/ds/symlink/sn74hc595.pdf
-void Setup() {
+void setup() {
   // put your setup code here, to run once:
   pinMode(SER, OUTPUT);
   pinMode(CLK, OUTPUT);
@@ -41,8 +43,15 @@ void ClearOutput() {
   digitalWrite(SRCLR_INV, LOW);
   tick();
   digitalWrite(SRCLR_INV, HIGH);
+  // TODO: should probably latch when this occurs, but docs say that simply asserting SRCLR is enough.
 }
 
+
+// Shifts out one bit to the hardcoded shift register outputs
+void shiftOut(bool state) {
+  digitalWrite(SER, state);
+  tick();
+}
 
 // The main method for writing data to output, bit by bit, as a single fixed-size state.
 // Unlatches, writes data lsb-first, then latches.
@@ -53,7 +62,7 @@ void Write(int data, int numBits) {
   digitalWrite(LATCH, LOW);
   
   for(int i = 0; i < numBits; i++) {
-    bool nextBit = ((num >> i) & 1) == 1;
+    bool nextBit = ((data >> i) & 1) == 1;
     shiftOut(nextBit);
 
     // dumb overflow guard
@@ -66,19 +75,16 @@ void Write(int data, int numBits) {
 }
 
 
-// Shifts out one bit to the hardcoded shift register outputs
-void shiftOut(bool state) {
-  digitalWrite(SER, state);
-  tick();
-}
-
-
 // Test each output by writing a bit exclusively to each position with a small delay between.
 void test() {
-for(int i = 0; i < 8; i++) {
-    Write(1 << i, 8);
-    delay(500);
+  //Write(7, 8);
+  
+  for(int i = 0; i < 256; i++) {
+    Write(i, 8);
+    delay(100);
+    //ClearOutput();
   }
+  
 }
 
 
@@ -91,6 +97,12 @@ void shifty() {
 
 
 void loop() {
+  //ClearOutput();
+  //Write(7, 8);
+  //delay(50);
+  //Write(255, 8);
+  //delay(50);
+  //tick();
   test();
   //shifty();
   //Shutdown();
@@ -101,13 +113,13 @@ void loop() {
 // Note: caller is responsible for initial state
 void rise() {
   digitalWrite(CLK, 1);
-  delayMicroseconds(1);
+  delayMicroseconds(CLK_EDGE_US);
 }
 
 
 void fall() {
   digitalWrite(CLK, 0);
-  delayMicroseconds(1);
+  delayMicroseconds(CLK_EDGE_US);
 }
 
 
