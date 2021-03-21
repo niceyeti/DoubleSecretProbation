@@ -1,5 +1,29 @@
 // Duino code for 74HC595N
 
+/*************************************************************************************************************
+A single code file project for controlling the 8x8 led matrix, 788BS, using two daisy-chained 74HC595N
+shift registers. This code is a mess because I'm not famliar with duino project organization, so this file
+mixes library code and main()/application code, which needs to be refactored.
+
+TODO:
+- organize devices into libraries in a generalizable way
+- break up this file
+
+*************************************************************************************************************/
+
+/////////////////////////////////////////////////////////////////////////////////////////////
+// 74HC595N SHIFT REGISTER CODE /////////////////////////////////////////////////////////////
+/////////////////////////////////////////////////////////////////////////////////////////////
+
+/*
+TODO: The shift register code belongs in a library. Need to familiarize myself with duino
+project organization.
+*/
+
+// TODO: these are main application constants; move them when librarifying.
+// Disentangling these will be hard, unless there is oop for some kind of di to inject them.
+// Compile time mechanisms from mcu-programming, like static vars, seem ugly. Hm...
+
 // data
 const int SER = 2;
 // shift register clk. This is SRCLK or SHCP in the lit; RCLK is instead for storing/latching in the register.
@@ -12,18 +36,20 @@ const int SRCLR_INV = 5;
 const int CLK_EDGE_US = 1;
 
 
-// See 'function table' for basic functionality: https://www.ti.com/lit/ds/symlink/sn74hc595.pdf
-void setup() {
+// Sets up the past pins as outputs and configures their initial states.
+void SetupRegisterPorts(int ser, int clk, int latch, int srclr_inv) {
   // put your setup code here, to run once:
-  pinMode(SER, OUTPUT);
-  pinMode(CLK, OUTPUT);
-  pinMode(LATCH, OUTPUT);
-  pinMode(SRCLR_INV, OUTPUT);
+  pinMode(ser, OUTPUT);
+  digitalWrite(ser, LOW);
 
-  // Unclear
-  digitalWrite(SRCLR_INV, HIGH);
-  // Latch low; output will not be shown while data propagate
-  digitalWrite(LATCH, LOW);
+  pinMode(clk, OUTPUT);
+  digitalWrite(clk, LOW);
+  
+  pinMode(latch, OUTPUT);
+  digitalWrite(latch, LOW); // latching low; data will propagate but not be shown
+  
+  pinMode(srclr_inv, OUTPUT);
+  digitalWrite(srclr_inv, HIGH); // unclear  
 }
 
 
@@ -43,7 +69,6 @@ void ClearOutput() {
   digitalWrite(SRCLR_INV, LOW);
   tick();
   digitalWrite(SRCLR_INV, HIGH);
-  // TODO: should probably latch when this occurs, but docs say that simply asserting SRCLR is enough.
 }
 
 
@@ -73,73 +98,6 @@ void Write(int data, int numBits) {
 
   digitalWrite(LATCH, HIGH);
 }
-
-
-// Write a single led in an 8x8 788BS led matrix:
-// 
-// @row: The row to write; must be in [0,7]
-// @col: The col to write; must be in [0,7]
-void writeLed(int row, int col, bool state) {
-    // A 16 bit ushort is used to drive two daisy-chained 8bit shift registers;
-    // the high 8 bits represent the row and the low 8 bits the column.
-
-    // TODO: depending on the anode/cathode orientation of row vs col, one of these 1s will depend on @state.
-    ushort rowBits = 1 << row;
-    ushort colBits = (state ? 1 : 0) << col;
-    ushort data = (rowBits << 8) | colBits;
-
-    Write((int)data, 16);
-}
-
-
-// Worth trying: write an entire row or column. The 0th entry in state array
-// will be the highest bit in the row bits (the upper 8 bits of a ushort) to
-// match left-to-right iteration.
-void writeLedRow(int row, int col, bool[8] rowState) {
-    // A 16 bit ushort is used to drive two daisy-chained 8bit shift registers;
-    // the high 8 bits represent the row and the low 8 bits the column.
-    ushort rowBits = 0;
-    for(int i = 7; i >= 0; i--) {
-        rowBits |= ((rowState[i] ? HIGH : LOW) << i);
-    }
-
-    ushort colBits = HIGH << col;
-
-    ushort data = (rowBits << 8) | colBits;
-
-    Write((int)data, 16);
-}
-
-
-// Writes the passed state to a 8x8 led matrix.
-void WriteMatrix(bool[8][8] state) {
-    for(int row = 0; row < 8; row++) {
-        for(int col = 0; col < 8; col++) {
-            writeLed(row, col, state[row][col]);
-            delay(50);
-            // TODO: shut off after writing
-        }
-    }
-}
-
-
-// Test each output by writing a bit exclusively to each position with a small delay between.
-void test() {
-  //Write(7, 8);
-  
-  for(int i = 0; i < 256; i++) {
-    //Write(i, 8);
-    Write(i, 16);
-    delay(100);
-    //ClearOutput();
-  }
-}
-
-
-void loop() {
-  test();
-}
-
 
 // A rising edge of the clk: low -> high.
 // Note: caller is responsible for initial state
@@ -175,3 +133,109 @@ void tock() {
   fall();  // 0
   rise();  // 1
 }
+
+/////////////////////////////////////////////////////////////////////////////////////////////
+// END OF SHIFT REGISTER CODE ///////////////////////////////////////////////////////////////
+/////////////////////////////////////////////////////////////////////////////////////////////
+
+
+
+/////////////////////////////////////////////////////////////////////////////////////////////
+// LED MATRIX REGISTER CODE   ///////////////////////////////////////////////////////////////
+/////////////////////////////////////////////////////////////////////////////////////////////
+
+// Write a single led in an 8x8 788BS led matrix:
+// 
+// @row: The row to write; must be in [0,7]
+// @col: The col to write; must be in [0,7]
+void writeLed(int row, int col, bool state) {
+    // A 16 bit ushort is used to drive two daisy-chained 8bit shift registers;
+    // the high 8 bits represent the row and the low 8 bits the column.
+
+    // TODO: depending on the anode/cathode orientation of row vs col, one of these 1s will depend on @state.
+    unsigned short rowBits = 1 << row;
+    unsigned short colBits = (state ? 1 : 0) << col;
+    unsigned short data = (rowBits << 8) | colBits;
+
+    Write((int)data, 16);
+}
+
+
+// Worth trying: write an entire row or column. The 0th entry in state array
+// will be the highest bit in the row bits (the upper 8 bits of a ushort) to
+// match left-to-right iteration.
+void writeLedRow(int row, int col, bool rowState[8]) {
+    // A 16 bit ushort is used to drive two daisy-chained 8bit shift registers;
+    // the high 8 bits represent the row and the low 8 bits the column.
+    unsigned short rowBits = 0;
+    for(int i = 7; i >= 0; i--) {
+        rowBits |= ((rowState[i] ? HIGH : LOW) << i);
+    }
+
+    unsigned short colBits = HIGH << col;
+
+    unsigned short data = (rowBits << 8) | colBits;
+
+    Write((int)data, 16);
+}
+
+
+// Writes the passed state to a 8x8 led matrix.
+void WriteMatrix(bool state[8][8]) {
+    for(int row = 0; row < 8; row++) {
+        for(int col = 0; col < 8; col++) {
+            writeLed(row, col, state[row][col]);
+            delay(50);
+            // TODO: shut off after writing
+        }
+    }
+}
+
+/////////////////////////////////////////////////////////////////////////////////////////////
+// END OF LED MATRIX CODE     ///////////////////////////////////////////////////////////////
+/////////////////////////////////////////////////////////////////////////////////////////////
+
+
+
+/////////////////////////////////////////////////////////////////////////////////////////////
+// MAIN APP CODE              ///////////////////////////////////////////////////////////////
+/////////////////////////////////////////////////////////////////////////////////////////////
+
+
+// See 'function table' for basic functionality: https://www.ti.com/lit/ds/symlink/sn74hc595.pdf
+void setup() {
+  SetupRegisterPorts(SER, CLK, LATCH, SRCLR_INV);
+  
+  /*
+  // put your setup code here, to run once:
+  pinMode(SER, OUTPUT);
+  pinMode(CLK, OUTPUT);
+  pinMode(LATCH, OUTPUT);
+  pinMode(SRCLR_INV, OUTPUT);
+
+  // Unclear
+  digitalWrite(SRCLR_INV, HIGH);
+  // Latch low; output will not be shown while data propagate
+  digitalWrite(LATCH, LOW);
+  */
+}
+
+// Test each output by writing a bit exclusively to each position with a small delay between.
+void test() {
+  //Write(7, 8);
+  
+  for(int i = 0; i < 256; i++) {
+    //Write(i, 8);
+    Write(i, 16);
+    delay(100);
+    //ClearOutput();
+  }
+}
+
+
+void loop() {
+  test();
+}
+
+
+
