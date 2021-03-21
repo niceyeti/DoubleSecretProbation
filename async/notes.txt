@@ -25,6 +25,48 @@ Weirdness:
             var result = completedTask.Result; // Does not propagate exceptions from @completedTask!!
 
 
+	Dangerous lost exception pattern using multiple awaits:
+		var firstTask = createFirstTask(); // firstTask begins running...
+		var secondTask = createSecondTask(); // secondTask begins...
+
+		try{
+			var result1 = await firstTask;
+			var result2 = await secondTask;
+		}
+		catch()
+		{...}
+	This is dangerous because before the try, firstTask and secondTask are both running/initiated. If an exception is thrown from firstTask,
+	it is caught and handled; however, secondTask is still running and could throw later in an unprotected context.
+	This is from Davies' Async book, and I'd like to test it to prove, but it does explain the use of WaitAll() in the library,
+	since it aggregates the exceptions from all awaited tasks.
+
+
+	Dont hold locks across an await:
+		lock(sync){
+			var result = await someTask();
+			//handle result
+		}
+	This is extremely dangerous because the thread the method begins on with the lock may be different than the one it resumes
+	on after an await. Instead, break up the lock like:
+	lock(sync){
+		//access some concurrent data
+	}
+	var result = await someTask();
+	lock(sync){
+		//handle result
+		concurrentStuff.Add(result);
+	}
+
+	Davies: "If you’re unlucky, you may need to hold some kind of lock over the execution of anasynchronous operation.
+	When this happens, you need to think hard, because in gen-eral it’s very difficult to lock resources across an asynchronous call without invitingserious contention issues and deadlocks.
+	It may be best to redesign your program."
+
+
+
+	'async' is not part of function signatures, so not a part of any interface or inherited/overridden member. Neither interfaces nor abstract/parent
+	classes need to specify async, nor can they require async as part of their interface.
+
+
     Best practice is to call ConfigureAwait(false) on an waited task.
         await Task.Delay(TimeSpan.FromSeconds(1)).ConfigureAwait(false);
     This frees up the context in which 'await' was initially called, and can be important if that is the UI context to prevent many
@@ -37,6 +79,16 @@ Weirdness:
     Unit testing: microsoft test frameworks often include a TestMethod timeout setting, provided via some config file. Just goolge 'er.
 
 
+Interesting:
+
+	An async delegate:
+		Func<Task<int>> getNumberAsync = asyncdelegate { return 3; };
+
+	An async lambda:
+		Func<Task<string>> fooLambda = async () => "foo";
+
+
+
 Data structures:
     -Use builtin concurrent data structures wherever possible for efficiency: ConcurrentDictionary, etc.
     These often generate immutable copies of collections, such as on iteration of the collection.
@@ -47,6 +99,18 @@ Data structures:
 
 
 (CancellationToken a better api for implementing timeouts)
+
+Unclear:
+	When to choose Task library based TAP over straightforward await'able code.
+	When to use this: Task.Run(() => LongComputation);
+	Or this: var task = await LongComputationAsync();
+
+
+
+
+
+
+
 
 
 
