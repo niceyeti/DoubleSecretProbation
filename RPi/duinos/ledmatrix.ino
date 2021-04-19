@@ -1,14 +1,21 @@
 
 // data
-const int SER = 2;
+#define SER 2
 // shift register clk. This is SRCLK or SHCP in the lit; RCLK is instead for storing/latching in the register.
-const int CLK = 3;
+#define CLK 3
 // Latch, aka RCLK (also STCP) for 74hc595n
-const int LATCH = 4;
+#define LATCH 4
 // shift register clear. "INV" means negation: low asserts clearing, high is 'not-clear'.
-const int SRCLR_INV = 5;
-// Minmum clk edge duration. ~100 ns minimum according to the datasheet, 1000 ns oughta do it
-const int CLK_EDGE_US = 1;
+#define SRCLR_INV 5
+// Minmum clk edge duration. ~100 ns minimum according to the datasheet, 1000 ns oughta do it.
+// NOTE: the min delay is 3 microseconds; below that, no guarantees.
+#define CLK_EDGE_US 1
+// The combined size of the shift register; in this case 2 shift registers, 8 bits each, 8*2 = 16.
+#define NUM_BITS 16
+
+// matrix size
+#define NUM_ROWS 8
+#define NUM_COLS 8
 
 // Sets up the passed pins as outputs and configures their initial states.
 void SetupRegisterPorts(int ser, int clk, int latch, int srclr_inv) {
@@ -106,9 +113,9 @@ void Write(unsigned int data, int numBits, bool lsbFirst) {
 
 
 /////////////////////////////////////////////////////////////////////////////////////////////
-// LED MATRIX REGISTER CODE   ///////////////////////////////////////////////////////////////
+// LED MATRIX REGISTER CODE             ////////////////////////////////////////////////////
+// 788BS common anode (row is +) matrix //////////////////////////////////////////////////////
 /////////////////////////////////////////////////////////////////////////////////////////////
-
 
 /*
 The logical vs. physical pin mapping for the 788BS is not intuitive, and requires random mapping.
@@ -125,94 +132,90 @@ to the unusual physical pinning of the 788BS.
 const unsigned int ROW_MAPPING[8] = { 9, 14, 8, 12, 1,  7,  2,  5};
 const unsigned int COL_MAPPING[8] = {13,  3, 4, 10, 6, 11, 15, 16};
 
-// Write a single led in an 8x8 788BS led matrix:
-// 
-// @row: The row to write; must be in [0,7]
-// @col: The col to write; must be in [0,7]
-void writeLed(int row, int col, bool state) {  
-    // A 16 bit ushort is used to drive two daisy-chained 8bit shift registers;
-    // the high 8 bits represent the row and the low 8 bits the column.
-
-    // TODO: depending on the anode/cathode orientation of row vs col, one of these 1s will depend on @state.
-    unsigned short rowBits = HIGH << row;
-    unsigned short colBits = (state ? HIGH : LOW) << col;
-    unsigned short data = (rowBits << 8) | colBits;
-
-    Write((int)data, 16, false);
-}
-
-
-// Worth trying: write an entire row or column. The 0th entry in state array
-// will be the highest bit in the row bits (the upper 8 bits of a ushort) to
-// match left-to-right iteration.
-void writeLedRow(int row, int col, bool rowState[8]) {
-    // A 16 bit ushort is used to drive two daisy-chained 8bit shift registers;
-    // the high 8 bits represent the row and the low 8 bits the column.
-    unsigned short rowBits = 0;
-    for(int i = 7; i >= 0; i--) {
-        rowBits |= ((rowState[i] ? HIGH : LOW) << i);
-    }
-
-    unsigned short colBits = HIGH << col;
-
-    unsigned short data = (rowBits << 8) | colBits;
-
-    Write((int)data, 16, false);
-}
-
+// A type for expressing an led to turn on.
+typedef struct MatrixLed {
+  int Row;
+  int Col;
+};
 
 // Writes the passed state to a 8x8 led matrix.
 // The state is written one pixel in the matrix at a time, with a small delay to illuminate that led.
 // @state: a bit matrix in [row][col] order.
-void WriteMatrix(bool state[8][8]) {
+void WriteMatrix(bool state[NUM_ROWS][NUM_COLS]) {
   unsigned int data = 0;
 
-  Write(0xFFFF, 16, false);
-  //Write(0x0, 16, false);
+  Write(0xFFFF, NUM_BITS, false);
 
   // iterating the logical row and column as viewed from above
-  for(int row = 0; row < 8; row++) {
-        //Write(0x0, 16);
-        
-        for(int col = 0; col < 8; col++) {
-          // map from the logical row and column to physical pins
-          int row_pin = ROW_MAPPING[row] - 1;
-          int col_pin = COL_MAPPING[col] - 1;
-          
-          if(state[row][col]) {            
-            // Set the rows bits: set only the row bit
-            data = 1 << row_pin;
-            for(int i = 0; i < 8; i++) {
-              data |= (1 << (COL_MAPPING[i] - 1));
-            }
-            data = data & ( ~(1 << col_pin));
-            //unsigned int colBits = ~(HIGH << col_pin);
-            //data = rowBits | colBits;
-          }
-          else {
-            data = 0xFFFF;
-          }
-          
-          Write(data, 16, false);
+  for(int row = 0; row < NUM_ROWS; row++) {        
+    for(int col = 0; col < NUM_COLS; col++) {
 
-          if(state[row][col]) {
-            delayMicroseconds(10);
-          }
-          else {
-            delayMicroseconds(2);
-          }
-        }
-        //Write(0xFFFF << 16, 16, false);
-        Write(0xFFFF, 16, false);
+      // led at this row and col is on
+      if(state[row][col]) {
+        TurnOnLed(row, col);  
+      }
+      else {
+        ClearMatrix();
+      }
     }
-    
-    // Write((int)data, 16);
+  }
+}
+
+// Clear the matrix. This should be called to initialize state, or between states to clear previous.
+void ClearMatrix() {
+  /*
+  // TODO: since this is a common-anode matrix the correct way to do this is to write 1s to all columns,
+  // shutting them off, before writing 1s to the row pins. The following code works, but causes flashing output.
+  unsigned int data = 0;
+  for(int i = 0; i < 8; i++) {
+    data |= (1 << (COL_MAPPING[i] - 1) );
+  }
+  Write(data, NUM_BITS, false);
+  */
+  // Write all 1's. Since this is a common-anode matrix, this shuts off all leds.
+  Write(0xFFFF, NUM_BITS, false);
+}
+
+// Turn on a single led; all others are 'driven' to off. Since this is a common-anode matrix, driving the selected row high,
+// and the selected col low, that led turns on; 
+// This function is expected to be called repeatedly, such that the repetition creates the visual perception of a single matrix state.
+// Note that row/col counting starts at 1, to match datasheet.
+void TurnOnLed(int row, int col) {
+  // map from the logical row and column to physical pins
+  unsigned int row_pin = ROW_MAPPING[row] - 1;
+  unsigned int col_pin = COL_MAPPING[col] - 1;
+  
+  // Build the next 16 bit state. Note there is some trixiness.
+  // 1) Write 8 the row bits, such that only the selected row is high, since this code is for a common-anode matrix.
+  //    This implies that the row bits only have one high bit.
+  // 2) Write the column bits such that only the selected column is low, again since this is a common-anode matrix.
+  //    This implies that the col bits only have one low bit.
+  // This code is just the implementation of (1) and (2).
+  unsigned int data = 1 << row_pin;
+  for(int i = 0; i < NUM_COLS; i++) {
+    data |= (1 << (COL_MAPPING[i] - 1));
+  }
+  data = data & ( ~(1 << col_pin) );
+ 
+  // write the new state; written high-bit first, purely because of my wiring
+  Write(data, NUM_BITS, false);
+  // delay briefly to show output
+  delayMicroseconds(3);
+}
+
+// Turns on the passed leds.
+// Note that row/col counting starts at 1, to match datasheet.
+void TurnOnLeds(struct MatrixLed leds[], int n) {
+  struct MatrixLed* led;
+  for(int i = 0; i < n; i++) {
+    led = &leds[i];
+    TurnOnLed(led->Row, led->Col);
+  }
 }
 
 /////////////////////////////////////////////////////////////////////////////////////////////
 // END OF LED MATRIX CODE     ///////////////////////////////////////////////////////////////
 /////////////////////////////////////////////////////////////////////////////////////////////
-
 
 
 
@@ -222,21 +225,8 @@ void WriteMatrix(bool state[8][8]) {
 
 
 // Test each output by writing a bit exclusively to each position with a small delay between.
-void test() {
-  //Write(7, 8);
-
-/*
- bool matrix[8][8] = {
- {true, true, true, true, true, true, true, true},
- {false, false, false, false, false, false, false, false},
- {true, true, true, true, true, true, true, true},
- {false, false, false, false, false, false, false, false},
- {false, false, false, false, false, false, false, false},
- {true, true, true, true, true, true, true, true},
- {false, false, false, false, false, false, false, false},
- {true, true, true, true, true, true, true, true}};
-  */
- bool matrix[8][8] = {
+void test_WriteMatrix() {
+ bool matrix[NUM_ROWS][NUM_COLS] = {
  {true,  true, false, false, false, false, false, false},
  {false, true, false, false, false, false, false, false},
  {false, false, true, false, false, false, false, false},
@@ -246,34 +236,117 @@ void test() {
  {false, false, false, false, false, false, true, false},
  {false, false, false, false, false, false, false, true}};
   
-  
-  WriteMatrix(matrix);  
+  WriteMatrix(matrix);
+}
 
-  /*  
-  for(int i = 0; i < 256; i++) {
-    //Write(i, 8);
-    //Write(i, 16);
-    WriteMatrix(matrix);
-    delay(1000);
-    //ClearOutput();
-    //delay(1000);
+void test_Animate() {
+  for(int i = 0; i < NUM_ROWS; i++) {
+    for(int j = 0; j < NUM_COLS; j++) {
+      TurnOnLed(i, j);
+      delay(75);
+    }
   }
-  */
+}
+
+
+bool IsAlive(bool matrix[NUM_ROWS][NUM_COLS]) {
+   for(int i = 0; i < NUM_ROWS; i++) {
+     for(int j = 0; j < NUM_COLS; j++) {
+       if(matrix[i][j]) {
+         return true;
+       }
+     }
+   }
+  return false;
+}
+
+// TODO: could try wrapping the matrix boundaries, e.g. if one's rightmost neighbor is beyond the array bounds, then instead check the leftmost column, etc.
+void test_Conway() {
+ bool matrix[NUM_ROWS][NUM_COLS];
+ 
+ for(int i = 0; i < NUM_ROWS; i++) {
+   for(int j = 0; j < NUM_COLS; j++) {
+     matrix[i][j] = random(0,100) % 2 == 0;
+   }/* = {
+ {true,   true, true, false, false, false, false, false},
+ {true,  true, true, true, false, false, false, false},
+ {false, true, false, false, false, false, false, false},
+ {false, false, false, false, false, false, false, false},
+ {false, false, false, false, false, false, false, false},
+ {false, false, false, false, false, false, false, false},
+ {false, false, false, false, false, false, false, false},
+ {false, false, false, false, false, false, false, false}};*/
+ }
+
+  int liveNeighbors = 0;
+  int prevRow, prevCol, nextRow, nextCol;
+
+  while(IsAlive(matrix)) {
+    
+    // update matrix per rules for conway's game of life
+    for(int i = 0; i < NUM_ROWS; i++) {
+      for(int j = 0; j < NUM_COLS; j++) {
+        prevRow = i - 1;
+        prevCol = j - 1;
+        nextRow = i + 1;
+        nextCol = j + 1;
+        liveNeighbors = 0;
+        
+        if(prevRow >= 0) {
+          // top-left
+          if(prevCol >= 0 && matrix[prevRow][prevCol]) {
+            liveNeighbors++;
+          }
+          // middle-top
+          if(matrix[prevRow][j]) {
+            liveNeighbors++;
+          }
+          // top-right
+          if(nextCol < NUM_COLS && matrix[prevRow][nextCol]) {
+            liveNeighbors++;
+          }
+        }
+
+        // next-right        
+        if(nextCol < NUM_COLS && matrix[i][nextCol]) {
+          liveNeighbors++;
+        }
+        
+        // prev-left
+        if(prevCol > 0 && matrix[i][prevCol]) {
+          liveNeighbors++;
+        }
+        
+        if(nextRow < NUM_ROWS) {
+          // bottom-left
+          if(prevCol >= 0 && matrix[nextRow][prevCol]) {
+            liveNeighbors++;
+          }
+          // middle-bottom
+          if(matrix[nextRow][j]) {
+            liveNeighbors++;
+          }
+          // bottom-right
+          if(nextCol < NUM_COLS && matrix[nextRow][nextCol]) {
+            liveNeighbors++;
+          }
+        }
+
+        matrix[i][j] = (liveNeighbors == 2 && matrix[i][j]) || liveNeighbors == 3;
+      }
+    }
+    
+    for(int k = 0; k < 30; k++) {
+      WriteMatrix(matrix);
+      delayMicroseconds(3);
+    }
+  }
 }
 
 void loop() {
-  test();
-  //Write((int)(0b1111111111111111 << 16), 16, true);  ClearOutput();
-  //Write((unsigned int)(0b1100), 4, false);
-  //Write((unsigned int)(0b1111111111111111 << 16), 16, true);
-  //Write((int)((~0b1111111111101111) << 16), 16, false);
-    //Write((int)((~0b11111111) << 16), 16, false);
-    //Write((int)((~0b)), 16, true);
-    //delay(1000);
-    //Write(0, 16, true);
-    //    delay(100);
-  //ClearOutput();
-  //    delay(1000);
+  test_Conway();
+  //test_Animate();
+  //test_WriteMatrix();
 }
 
 
