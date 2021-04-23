@@ -10,6 +10,9 @@
 // Minmum clk edge duration. ~100 ns minimum according to the datasheet, 1000 ns oughta do it.
 // NOTE: the min delay is 3 microseconds; below that, no guarantees.
 #define CLK_EDGE_US 1
+// The minimum possible delay on the arduino; 3 microseconds, per their docs.
+#define MIN_DELAY_US 3
+
 // The combined size of the shift register; in this case 2 shift registers, 8 bits each, 8*2 = 16.
 #define NUM_BITS 16
 
@@ -144,12 +147,10 @@ typedef struct MatrixLed {
 void WriteMatrix(bool state[NUM_ROWS][NUM_COLS]) {
   unsigned int data = 0;
 
-  Write(0xFFFF, NUM_BITS, false);
-
+  //ClearMatrix();
   // iterating the logical row and column as viewed from above
-  for(int row = 0; row < NUM_ROWS; row++) {        
+  for(int row = 0; row < NUM_ROWS; row++) {
     for(int col = 0; col < NUM_COLS; col++) {
-
       // led at this row and col is on
       if(state[row][col]) {
         TurnOnLed(row, col);  
@@ -200,7 +201,7 @@ void TurnOnLed(int row, int col) {
   // write the new state; written high-bit first, purely because of my wiring
   Write(data, NUM_BITS, false);
   // delay briefly to show output
-  delayMicroseconds(3);
+  delayMicroseconds(MIN_DELAY_US);
 }
 
 // Turns on the passed leds.
@@ -263,19 +264,12 @@ bool IsAlive(bool matrix[NUM_ROWS][NUM_COLS]) {
 // TODO: could try wrapping the matrix boundaries, e.g. if one's rightmost neighbor is beyond the array bounds, then instead check the leftmost column, etc.
 void test_Conway() {
  bool matrix[NUM_ROWS][NUM_COLS];
+ bool next[NUM_ROWS][NUM_COLS];
  
  for(int i = 0; i < NUM_ROWS; i++) {
    for(int j = 0; j < NUM_COLS; j++) {
-     matrix[i][j] = random(0,100) % 2 == 0;
-   }/* = {
- {true,   true, true, false, false, false, false, false},
- {true,  true, true, true, false, false, false, false},
- {false, true, false, false, false, false, false, false},
- {false, false, false, false, false, false, false, false},
- {false, false, false, false, false, false, false, false},
- {false, false, false, false, false, false, false, false},
- {false, false, false, false, false, false, false, false},
- {false, false, false, false, false, false, false, false}};*/
+     matrix[i][j] = random(0,100000) % 2 == 0;
+   }
  }
 
   int liveNeighbors = 0;
@@ -332,7 +326,14 @@ void test_Conway() {
           }
         }
 
-        matrix[i][j] = (liveNeighbors == 2 && matrix[i][j]) || liveNeighbors == 3;
+        next[i][j] = (liveNeighbors == 2 && matrix[i][j]) || liveNeighbors == 3;
+      }
+    }
+    
+    // Copy the next state to the matrix
+    for(int i = 0; i < NUM_ROWS; i++) {
+      for(int j = 0; j < NUM_COLS; j++) {
+        matrix[i][j] = next[i][j];
       }
     }
     
