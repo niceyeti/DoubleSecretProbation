@@ -1,6 +1,7 @@
 package subscriber
 
 import (
+	"context"
 	"sync"
 	"testing"
 	"time"
@@ -26,8 +27,10 @@ func TestSubscriber(t *testing.T) {
 		signaled := false
 		var notifier Notifier = NewNotifier(cond)
 
+		ctx, cancel := context.WithTimeout(context.Background(), time.Duration(time.Second))
 		notifier.Subscribe(func() {
 			signaled = true
+			cancel()
 		})
 
 		So(signaled, ShouldEqual, false)
@@ -35,7 +38,7 @@ func TestSubscriber(t *testing.T) {
 		// TODO: how to block test a max of x ms? I think this entails the typical wait-group 'until' pattern:
 		//  * creating a testWaitGroup, setting it to Done() inside the subscriber fn, then waiting on it a max of 1s.
 		//  Or use context.WithDeadline()
-		time.Sleep(1 * time.Second)
+		<-ctx.Done()
 		So(signaled, ShouldEqual, true)
 	})
 }
