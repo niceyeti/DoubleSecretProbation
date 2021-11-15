@@ -1,4 +1,3 @@
-# Note: this definition is for part of my messy manual/procedural k3d experimentation, not part of any chart yet.
 apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:
@@ -11,7 +10,7 @@ spec:
   rules:
   - http:
       paths:
-      - path: /    # TODO: could make these paths more specific, e.g. /fortune, /some/other/endpoint, etc
+      - path: /
         pathType: Prefix
         backend:
           service:

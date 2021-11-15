@@ -1,12 +1,19 @@
 # Default values for a simple go web app.
-
+# Note that this is very scratch/rough; the app definition below is just to serve
+# as a starting point for a typical service, with no extras (volumes, security, etc).
+# Importantly, the properties of the liveness/readiness and minReadySeconds parameters
+# are just some default I used, and should be tuned conscientiously.
 
 deployment:
   fullname: "simple-go-app"
   replicaCount: 1
   selectorLabels:
     app: simple-go-app
-  livenessPeriodSeconds: 1
+    enabled: "true"
+  env:
+    - name: "APP_PORT"
+      value: "80"
+  livenessPeriodSeconds: 11
   # Tolerance period to wait, after readiness succeeds, before forwarding traffic to deployed pods.
   # TODO: experiment with this parameter.
   minReadySeconds: 5
@@ -48,16 +55,12 @@ podAnnotations:
 service:
   type: "ClusterIP"
   port: "80"
-  #nodePort: 12345 # just for fun; should be using an ingress object instead, but this is just experimentation...
   containerPort: 80 # TODO: make the app read this from env
   containerPortName: "http"
   protocol: "TCP"
   readinessPeriodSeconds: 1
 
 ingress:
-  #enabled: false
-  #className: ""
-  #annotations: {}
   annotations:
     ingress.kubernetes.io/ssl-redirect: "false" # TODO: er what is this?
     # kubernetes.io/ingress.class: nginx

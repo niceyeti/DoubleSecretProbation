@@ -1,6 +1,4 @@
-print('Running tilt...')
-
-# build the docker image
+# Build the docker image
 # Equivalent to: docker build -t localhost:5000/simple-go-app -f ./code/Dockerfile ./code
 docker_build(
     ref='localhost:5000/simple-go-app',

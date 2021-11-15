@@ -25,6 +25,10 @@ spec:
         - name: {{ .Values.deployment.fullname }}
           image: "{{ .Values.image.repository }}/{{ .Values.image.image }}:{{ .Values.image.tag }}"
           imagePullPolicy: {{ .Values.image.pullPolicy }}
+          env:
+            {{- with .Values.deployment.env }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
           ports:
             - name: {{ .Values.service.containerPortName }}
               containerPort: {{ .Values.service.containerPort }}
