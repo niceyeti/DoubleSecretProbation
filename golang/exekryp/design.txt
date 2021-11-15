@@ -1,0 +1,68 @@
+Alg Reqs:
+* End to end non-observability
+* Key rotation
+* Mutual trust, initiated by server
+* Revocation from server
+
+TODO:
+- Extend to containers? 
+	Note that most of this work emulates features in Kubernetes 1:1: health checks, drift protection, secrets.
+	* Fingerprinting: container introspection
+	* Secrets: api, rotation
+	
+- Can registration be renewed without writing down K?
+	Demotion scheme: without some checks, the server bumps the client back down to initialization state; client polls /registration.
+	
+	STRIDE stuff:
+	- registration token must expire in some window; detect reuse if possible
+	- key rotation: simply a policy
+	DOS protection: fast and slow...but not too slow... but not too fast... these reqs suck
+	- rate limiting uploads using bucket algorithm
+		* configuration option for users?
+	- bottleneck is secondary persistence service
+	
+	/upload must know the origin: an xss attack from elsewhere to /upload could (attempt to) upload other files
+		* hmacs will block this; the point is that there may be further upstream checks needed:
+			- is this upload from a recognized uploader? how do I know this chain?
+	
+	
+	
+
+Algorithm:
+	Server, download: K_cert, K_token
+	Client: K_token, client fingerprint -> /register
+	Server: K_session
+	Client: fingerprint := h(env); sig := enc(K_session, fingerprint, data) -> telemetry
+	
+	Parallel:
+	Client: status -> /telemetry
+	
+	Servers tracks:
+	- client healthy
+	- client env/fingerprint?
+
+
+
+
+
+
+	Endpoints:
+	/telemetry: for uploading telemetry, heartbeats
+	/upload: upload some ish
+	/register: registration and initiation (can this endpoint be eliminated?)
+	
+
+Testing:
+	- Full integration with ORY
+
+
+
+
+
+
+
+
+
+
+
+

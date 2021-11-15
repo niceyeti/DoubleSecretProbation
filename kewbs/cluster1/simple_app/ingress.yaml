@@ -1,0 +1,20 @@
+
+
+# Note: this definition is for part of my messy manual/procedural k3d experimentation, not part of any chart yet.
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: simple-go-app
+  annotations:
+    ingress.kubernetes.io/ssl-redirect: "false"
+spec:
+  rules:
+  - http:
+      paths:
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: simple-go-app
+            port:
+              number: 80

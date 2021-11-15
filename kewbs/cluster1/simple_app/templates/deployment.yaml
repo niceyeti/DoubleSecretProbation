@@ -1,0 +1,41 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ .Values.deployment.fullname }}
+spec:
+  replicas: {{ .Values.deployment.replicaCount }}
+  minReadySeconds: {{ .Values.deployment.minReadySeconds }}
+  selector:
+    matchLabels:
+      {{- with .Values.deployment.selectorLabels }}
+      {{- toYaml . | nindent 6 }}
+      {{- end }}
+  template:
+    metadata:
+      annotations:
+      {{- with .Values.podAnnotations }}
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      labels:
+      {{- with .Values.deployment.selectorLabels }}
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+    spec:
+      containers:
+        - name: {{ .Values.deployment.fullname }}
+          image: "{{ .Values.image.repository }}/{{ .Values.image.image }}:{{ .Values.image.tag }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          ports:
+            - name: {{ .Values.service.containerPortName }}
+              containerPort: {{ .Values.service.containerPort }}
+              protocol:  {{ .Values.service.protocol }}
+          livenessProbe:
+            periodSeconds: {{ .Values.deployment.livenessPeriodSeconds }}
+            httpGet:
+              path: /health
+              port: {{ .Values.service.containerPortName }}
+          readinessProbe:
+            periodSeconds: {{ .Values.service.readinessPeriodSeconds }}
+            httpGet:
+              path: /health
+              port: {{ .Values.service.containerPortName }}

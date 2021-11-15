@@ -1,0 +1,21 @@
+print('Running tilt...')
+
+# build the docker image
+# Equivalent to: docker build -t localhost:5000/simple-go-app -f ./code/Dockerfile ./code
+docker_build(
+    ref='localhost:5000/simple-go-app',
+    context='./code',
+    dockerfile='./code/Dockerfile',
+    only='./') # NOTE: 'only' is evaluated relative to the context parameter.
+
+# TODO (goal): install postgres chart also
+
+# install the yaml generate by the helm command; first arg is pathToChartDir
+k8s_yaml(
+    helm(
+        './', 
+        name='',
+        namespace='default',
+        values=['./Values.yaml']
+    )
+)

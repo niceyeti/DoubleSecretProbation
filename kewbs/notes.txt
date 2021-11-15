@@ -1,0 +1,64 @@
+Helm:
+	Is installed with apt; use apt to update.
+
+	Helm can both create charts and also create and manage deployments by itself.
+	
+
+	helm lint # lint a chart
+	helm repo add bitnami https://charts.bitnami.com/bitnami
+	helm search repo bitnami
+	helm list
+	helm install bitnami/nginx --generate-name
+	helm # nothing, to view all the commands
+	helm show all bitnami/mysql
+	helm status bitnami/mysql1234...
+	helm uninstall bitnami/mysql1234...
+
+
+K3d:
+	Create cluster:
+		k3d cluster create mycluster
+	
+	
+	https://en.sokube.ch/post/k3s-k3d-k8s-a-new-perfect-match-for-dev-and-test-1
+	
+	k3d cluster create mycluster
+	k3d cluster list
+	k3d cluster stop mycluster
+	k3d cluster start mycluster
+	k3d node create newserver --cluster test --role agent
+
+	k3d cluster create test --port 8080:80@loadbalancer --port 8443:443@loadbalancer --api-port 6443 --servers 3 --agents 3
+
+
+
+Create a simple nginx deployment:
+	kubectl create deployment nginx --image=nginx
+	kubectl create service clusterip nginx --tcp=80:80
+	cat <<EOF | kubectl apply -f -
+	apiVersion: networking.k8s.io/v1beta1
+	kind: Ingress
+	metadata:
+	  name: nginx
+	  annotations:
+	    ingress.kubernetes.io/ssl-redirect: "false"
+	spec:
+	  rules:
+	  - http:
+	      paths:
+	      - path: /
+		backend:
+		  serviceName: nginx
+		  servicePort: 80
+	EOF
+
+
+
+
+
+
+
+
+
+
+

@@ -1,0 +1,60 @@
+
+
+One of the most confusing and google-polluted topics on container security is the USER directive
+for creating independent user namespaces for containers.
+
+* User namespaces isolate security-related attributes
+    * user ids, group ids, keys, capabilities, *root directory*
+    * Primarily think of user namespaces in terms of files and permissions: when an a user within a container
+    attempts to access a file on the host, say via a mount, the permissions of the mapped-user on the host 
+    are checked against the file. This extends to other aspects as well: network resources, capabilities, etc.
+    * A core thing to remember is that user namespace definitions are coupled to the relationships between many other
+    linux abstractions, and their relationships, such as capabilities. IOW, the composition of these abstractions is
+    what gives them their utility, but often creates confusion as well because of the quantified parent-child relationships
+    of capabilities, users, etc.
+* Run a container with a privileged user inside a container, but seen as unprivileged from outside.
+* DevOps: notice how user namespaces dovetail with other aspects of infrastructure-as-code to reduce developer burden.
+Profiles can be developed in a manner about which a developer need not know much; in their app code, they can simply
+bind to port 80 and develop their app. Likewise, the decoupling allows one to put all of these abstractions and their
+maintainance into sidecars, ambassadors, and other container proxies, such that their definitions are maintained there,
+without the developer needing to know or maintain all of the nitty gritty detail.
+
+
+See: https://man7.org/linux/man-pages/man7/user_namespaces.7.html
+
+
+Rootless containers: make use of user namespaces to map 
+    * echo '0 1000 1' > /proc/1234/uid_map
+        * Maps user id 0 inside of proc 1234 to userid 1000 on the host
+        * This is confusing,
+Podman: a container runtime implementation that doesn't use a privileged daemon process.
+
+
+
+Seccomp: limit the system calls available to a process.
+* Profiles are passed to a container at start time; can de defined in a json file.
+* Implemented in k8s using PodSecurityPolicy
+* Docker has a default seccomp profile; not running by default in k8s even if docker is used as the container runtime.
+* Use strace to capture the syscalls made by a process
+    * `strace -c echo hello world!`
+
+AppArmor:
+* Comes with "complain" mode for developing process profiles for an executable.
+* Linux security module (LSM) implementing mandatory access control
+
+Profile-based methods require management, however, somewhat contrived much like AV vendors.
+
+Tools:
+* tracee
+* strace -c $cmd
+* falco2seccomp: generate list of syscalls for a process
+* Most of these are shrink wrapping tools: run a process, observe its capabilities, record and enforce them:
+    * docker run -it --rm nginx   # terminal 1
+    * tracee.py -c -e cap_capable # terminal 2
+    * Whitelisting: based on output from terminal 2, enable/disable capabilities by dropping all caps then adding only those needed:
+        * docker run --cap-drop=ALL --cap-add=[caps...] image
+
+
+
+
+
