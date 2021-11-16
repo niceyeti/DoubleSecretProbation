@@ -34,12 +34,20 @@ spec:
               containerPort: {{ .Values.service.containerPort }}
               protocol:  {{ .Values.service.protocol }}
           livenessProbe:
-            periodSeconds: {{ .Values.deployment.livenessPeriodSeconds }}
+            periodSeconds: {{ .Values.deployment.liveness.periodSeconds }}
+            timeoutSeconds: {{ .Values.deployment.liveness.timeoutSeconds }}
+            initialDelaySeconds: {{ .Values.deployment.liveness.initialDelaySeconds }}
+            failureThreshold: {{ .Values.deployment.liveness.failureThreshold }}
+            successThreshold: {{ .Values.deployment.liveness.successThreshold }}
             httpGet:
               path: /health
               port: {{ .Values.service.containerPortName }}
           readinessProbe:
-            periodSeconds: {{ .Values.service.readinessPeriodSeconds }}
+            periodSeconds: {{ .Values.service.readiness.periodSeconds }}
+            timeoutSeconds: {{ .Values.service.readiness.timeoutSeconds }}
+            initialDelaySeconds: {{ .Values.service.readiness.initialDelaySeconds }}
+            failureThreshold: {{ .Values.service.readiness.failureThreshold }}
+            successThreshold: {{ .Values.service.readiness.successThreshold }}
             httpGet:
               path: /health
               port: {{ .Values.service.containerPortName }}

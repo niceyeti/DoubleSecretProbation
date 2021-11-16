@@ -3,7 +3,6 @@ package main
 /*
 For git and shiggles: a very basic web api to build as a 'webapp' for some helm deployment tutorials.
 */
-
 import (
 	"fmt"
 	"io/ioutil"
@@ -71,7 +70,7 @@ func getEnvOrDefault(envVar, defaultVal string) string {
 	if val == "" {
 		return defaultVal
 	}
-	fmt.Println("Got " + val + " from var " + envVar)
+	//fmt.Println("Got " + val + " from var " + envVar)
 	return val
 }
 

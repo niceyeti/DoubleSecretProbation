@@ -4,6 +4,7 @@ The simple_app folder is a demo learning example for developing a kubernetes bas
 ## TODO
 1) Add secrets/https
 2) Add postgres chart
+3) k3d declarative config
 
 ## Steps to Run
 1) Start the k3d cluster and registry:
@@ -15,14 +16,17 @@ The simple_app folder is a demo learning example for developing a kubernetes bas
 ## Other
 * Teardown and clean up: `./up.sh --clean`
 * Run a specific app: `tilt up simple-go-app`
+* Run any chart the lazy way, e.g. postgres: `helm install my_pg bitnami/postgresql`
 
 ## Notes
 
 Helm:
 * To verify chart, generate its yamls: `helm template [chart name] [chart directory]`
     * `helm template simple_app .`
+    * `helm lint simple_app .`
     * `helm template . --debug --values Values.yaml`
-
+* To view some chart, such as a bitnami:
+    * `helm show chart bitnami/postgresql`
 
 Registries:
 This is complicated because of the pointers to registries in the charts, and the credentials handling involved.

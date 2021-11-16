@@ -13,7 +13,12 @@ deployment:
   env:
     - name: "APP_PORT"
       value: "80"
-  livenessPeriodSeconds: 11
+  liveness:
+    periodSeconds: 10
+    initialDelaySeconds: 5
+    timeoutSeconds: 5
+    failureThreshold: 3
+    successThreshold: 1
   # Tolerance period to wait, after readiness succeeds, before forwarding traffic to deployed pods.
   # TODO: experiment with this parameter.
   minReadySeconds: 5
@@ -58,7 +63,12 @@ service:
   containerPort: 80 # TODO: make the app read this from env
   containerPortName: "http"
   protocol: "TCP"
-  readinessPeriodSeconds: 1
+  readiness:
+    periodSeconds: 10  
+    initialDelaySeconds: 5
+    timeoutSeconds: 5
+    failureThreshold: 3
+    successThreshold: 1
 
 ingress:
   annotations:
