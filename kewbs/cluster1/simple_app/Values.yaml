@@ -25,7 +25,7 @@ deployment:
 
 image:
   image: simple-go-app # TODO: consider renaming chart simple-go-app and using .Chart.name here; really, find out what others' convention is.
-  repository: localhost:5000 # TODO: need to resolve this; port map from outside the cluster is 3xxxx -> :5000 inside the cluster
+  repository: devregistry:5000 # TODO: need to resolve this; port map from outside the cluster is 3xxxx -> :5000 inside the cluster
   pullPolicy: Always
   # Overrides the image tag whose default is the chart appVersion.
   tag: "latest"
@@ -70,20 +70,21 @@ service:
     failureThreshold: 3
     successThreshold: 1
 
+
 ingress:
   annotations:
     ingress.kubernetes.io/ssl-redirect: "false" # TODO: er what is this?
     # kubernetes.io/ingress.class: nginx
     # kubernetes.io/tls-acme: "true"
-  hosts:  # TODO: not used, hardcoded most ingress params in the template. Do some research on this field.
-    - host: chart-example.local
-      paths:
-        - path: /
-          pathType: ImplementationSpecific
-  #tls: []
-  #  - secretName: chart-example-tls
-  #    hosts:
-  #      - chart-example.local
+#  hosts:  # TODO: not used, hardcoded most ingress params in the template. Do some research on this field.
+#    - host: chart-example.local
+#      paths:
+#        - path: /
+#          pathType: ImplementationSpecific
+#  tls: []
+#    - secretName: chart-example-tls
+#      hosts:
+#        - chart-example.local
 
 #resources: {}
 #  # We usually recommend not to specify default resources and to leave this as a conscious

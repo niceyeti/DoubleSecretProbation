@@ -3,7 +3,7 @@
 # WORK IN PROGRESS. Many parameters here will be factored differently as I learn.
 # Tilt will also likely do most of this stuff anyway, or much of the lifting (registry creation and management?).
 
-cluster_name="mycluster"
+cluster_name="devcluster"
 
 function cleanup() {
     echo "Cleaning up..."
@@ -29,6 +29,9 @@ echo "Creating cluster '$cluster_name'..."
 # Note that the --registry-create command is supposed to accept a name parameter, but is currently broken in my k3d version
 # FUTURE: understand and implement the --cluster-init switch to swap between etcd or sqlite; currently using defaults. HA would make a good project.
 #k3d cluster create $cluster_name --agents 1 -p 8080:30080@agent[0] --registry-create --wait
-k3d cluster create $cluster_name --api-port 6550 -p "8081:80@loadbalancer" --agents 1 --registry-create --wait  # see  https://k3d.io/usage/guides/exposing_services/
+#k3d cluster create $cluster_name --api-port 6550 -p "8081:80@loadbalancer" --agents 1 --registry-create mycluster-registry
 # Note: all ports exposed on the serverlb ("loadbalancer") will be proxied to the same ports on all server nodes in the cluster
-echo "Done."
+
+echo "Creating cluster"
+echo "TODO: this may take several minutes because my misconfigured registry is re-pulling images every run..."
+k3d cluster create --config k3d_config.yaml

@@ -1,7 +1,7 @@
 # Build the docker image
-# Equivalent to: docker build -t localhost:5000/simple-go-app -f ./code/Dockerfile ./code
+# Equivalent to: docker build -t devregistry:5000/simple-go-app -f ./code/Dockerfile ./code
 docker_build(
-    ref='localhost:5000/simple-go-app',
+    ref='devregistry:5000/simple-go-app',
     context='./code',
     dockerfile='./code/Dockerfile',
     only='./') # NOTE: 'only' is evaluated relative to the context parameter.
