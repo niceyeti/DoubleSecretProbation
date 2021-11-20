@@ -1,7 +1,8 @@
 # TODO: update k3d and use v1alpha3; this file contains many parameters not support on v2.
 apiVersion: k3d.io/v1alpha3 # this will change in the future as we make everything more stable
 kind: Simple # internally, we also have a Cluster config, which is not yet available externally
-name: mycluster # name that you want to give to your cluster (will still be prefixed with `k3d-`)
+# NOTE: name must be updated in other scripts if changed.
+name: devcluster # name that you want to give to your cluster (will still be prefixed with `k3d-`)
 servers: 1 # same as `--servers 1`
 agents: 1 # same as `--agents 1`
 kubeAPI: # same as `--api-port myhost.my.domain:6445` (where the name would resolve to 127.0.0.1)
