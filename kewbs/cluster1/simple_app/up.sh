@@ -1,7 +1,8 @@
 #!/bin/bash
 
+# Note: the cluster name created here corresponds with several scripts; grep when updating.
 cluster_name="devcluster"
-# Note: k3d prefixed many objects it creates 'k3d-', hence you gotta prefix to refer to them after they are created.
+# Note: k3d prefixes many objects it creates 'k3d-', but should still be referred via their unprefixed name.
 prefixed_cluster_name="k3d-$cluster_name"
 
 function cleanup() {
@@ -54,19 +55,18 @@ Commands:
         ./up.sh --new
     * Restart a cluster:
         ./up.sh --restart
-    * Delete old cluster, including registry:
+    * Delete ALL clusters, including k3d-managed registries:
         ./up.sh --clean
     * Pause the cluster, saving the registry as well:
         ./up.sh --pause
 
-Explanation: it is best to use the k3d api to manage all cluster resources, instead of implementing
-scripts to do so, especially as the k3d api develops. Creating a cluster can also create a registry,
-which can be problematic when rebuilding the cluster from scratch every time, since the new registry
-then has to re-pull k3d related images.
+Explanation: it is best to rely on the k3d api to manage all cluster resources, instead of implementing
+scripts to do so, especially as the k3d api evolves. From-scratch cluster+registry creation is problematic
+since the bare registry has to re-pull all base k3s and k3d images.
 
-Thus the basic KISS usage of k3d is best: run create to make a cluster and registry, then run 'stop'
+Instead, the basic KISS usage of k3d is best: run create to make a cluster and registry, then run 'stop'
 and 'start' to save or restore the cluster. This will retain the registry. IOW, let k3d manage the cluster
-and registry together, don't manage the dev registry separately.
+and registry together, don't manage the dev registry separately. Let the tool do the work.
 EOF
 }
 

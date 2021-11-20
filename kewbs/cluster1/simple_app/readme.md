@@ -29,7 +29,9 @@ Helm:
 
 Registries:
 This is complicated because of the pointers to registries in the charts, and the credentials handling involved.
+Registry and cluster names should be grepped since they often exist across yaml files and scripts.
 * See https://k3d.io/v5.0.3/usage/registries/
+* The simplest and best usage of a registry is to let k3d manage it, by using `cluster start/stop` instead of writing scripts to manage some registry.
 * Run:
     1) Run a private registry in the cluster:
     ```
