@@ -21,7 +21,11 @@ token: superSecretToken # same as `--token superSecretToken`
 #      - agent:*
 
 ports:
-  - port: 8080:80 # same as `--port '8080:80@loadbalancer'`
+  # Note: the loadbalancer port on the host provides ingress to the cluster;
+  # ingress objects created as part of the app deployment will also externally-expose the app
+  # at the node level, which in this case is a container, and therefore a docker network.
+  # So an app may be reached via localhost:8080/some_service and 172.0.18.2/some_service, where 172.* is some docker br-* interface.
+  - port: 8080:80 # same as `--port '8080:80@loadbalancer'``
     nodeFilters:
       - loadbalancer
 
@@ -31,11 +35,11 @@ ports:
 #      - server:0
 registries: # define how registries should be created or used
   create: # creates a default registry to be used with the cluster; same as `--registry-create devregistry`
-    name: devregistry
-    host: "0.0.0.0"
+    name: k3d-devregistry
+    host: "127.0.0.1"
     hostPort: "5000"
   #use:
-  #  - k3d-myregistry:5000 # some other k3d-managed registry; same as `--registry-use 'k3d-myotherregistry:5000'`
+  #  - k3d-devregistry:5000 # some other k3d-managed registry; same as `--registry-use 'k3d-myotherregistry:5000'`
 options:
   k3d: # k3d runtime settings
     wait: true # wait for cluster to be usable before returining; same as `--wait` (default: true)

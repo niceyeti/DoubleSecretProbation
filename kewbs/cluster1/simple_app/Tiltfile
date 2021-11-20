@@ -1,5 +1,7 @@
 # Build the docker image
 # Equivalent to: docker build -t devregistry:5000/simple-go-app -f ./code/Dockerfile ./code
+# TODO: the image was (and should be) "ref='devregistry:5000/simple-go-app'". But for some reason 
+# kubectl cannot pull it (run kubectl describe against the pod to see how the image is weirdly labeled)
 docker_build(
     ref='devregistry:5000/simple-go-app',
     context='./code',

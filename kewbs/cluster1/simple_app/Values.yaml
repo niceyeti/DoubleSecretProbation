@@ -30,6 +30,7 @@ image:
   # Overrides the image tag whose default is the chart appVersion.
   tag: "latest"
 
+
 #imagePullSecrets: []
 #nameOverride: ""
 #fullnameOverride: ""
@@ -64,7 +65,7 @@ service:
   containerPortName: "http"
   protocol: "TCP"
   readiness:
-    periodSeconds: 10  
+    periodSeconds: 10
     initialDelaySeconds: 5
     timeoutSeconds: 5
     failureThreshold: 3
