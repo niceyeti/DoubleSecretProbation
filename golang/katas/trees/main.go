@@ -57,11 +57,24 @@ func (q *Queue) Len() int {
 	return len(q.nodes)
 }
 
+func (tree *Tree) Depth() int {
+	return tree.depth(tree.root)
+}
 
+func (tree *Tree) depth(node *TreeNode) int {
+	if node == nil {
+		return 0
+	}
+
+	return max(
+		tree.depth(node.right) + 1,
+		tree.depth(node.left) + 1,
+	)
+}
 
 // Print the tree using BFS
 func (tree *Tree) PrintLevels() {
-	fmt.Printf("BFS vals: ")
+	fmt.Println("BFS vals: ")
 	visitor := func(node *TreeNode) {
 		fmt.Printf("%d ", node.data)
 	}
@@ -139,6 +152,7 @@ func (tree *Tree) insert(n int, node *TreeNode) (*TreeNode, bool) {
 func (tree *Tree) MaxSum() int {
 	leftSum := tree.sumLeft(tree.root.left)
 	rightSum := tree.sumRight(tree.root.right)
+	fmt.Printf("L/R and max: %d %d %d\n", leftSum, rightSum, max(leftSum, rightSum) + tree.root.data)
 	return max(leftSum, rightSum) + tree.root.data
 }
 
@@ -151,7 +165,7 @@ func (tree *Tree) sumRight(node *TreeNode) int {
 	leftSum, rightSum := 0, 0
 	for node != nil {
 		if node.left != nil {
-			leftSum = max(leftSum, tree.sumLeft(node.left))
+			leftSum = max(leftSum, tree.sumLeft(node.left) + node.data)
 		}
 		rightSum += node.data
 		node = node.right
@@ -168,7 +182,7 @@ func (tree *Tree) sumLeft(node *TreeNode) int {
 	leftSum, rightSum := 0, 0
 	for node != nil {
 		if node.right != nil {
-			rightSum = max(rightSum, tree.sumRight(node.right))
+			rightSum = max(rightSum, tree.sumRight(node.right) + node.data)
 		}
 		leftSum += node.data
 		node = node.left
@@ -177,152 +191,77 @@ func (tree *Tree) sumLeft(node *TreeNode) int {
 	return max(rightSum, leftSum)
 }
 
-func (tree *Tree) FindSumPath2(targetSum int) ([]*TreeNode, bool) {
-	sumRight, rightNodes := tree.checkRight(tree.root, targetSum)
-	if sumRight == targetSum {
-		return rightNodes, true
-	}
-	sumLeft, leftNodes := tree.checkLeft(tree.root, targetSum)
-	if sumLeft == targetSum {
-		return leftNodes, true
-	}
-	return []*TreeNode{}, false
-}
-
-func (tree *Tree) checkLeft(node *TreeNode, targetSum int) (int, []*TreeNode) {
-	pathNode := node
-	pathSum := 0
-	pathNodes := []*TreeNode{node}
-	for pathNode != nil {
-		pathSum += pathNode.data
-		pathNode = pathNode.left
-
-		if pathNode != nil {
-			pathNodes = append(pathNodes, pathNode)
-			if pathNode.right != nil {
-				sumRight, rightNodes := tree.checkRight(pathNode.right, targetSum)
-				if sumRight == targetSum {
-					return targetSum, rightNodes
-				}
-			}
-		}
-	}
-
-	if pathSum == targetSum {
-		return targetSum, pathNodes
-	}
-
-	return 0, []*TreeNode{}	
-}
-
-func (tree *Tree) checkRight(node *TreeNode, targetSum int) (int, []*TreeNode) {
-	pathNode := node
-	pathSum := 0
-	pathNodes := []*TreeNode{node}
-	for pathNode != nil {
-		pathSum += pathNode.data
-		pathNode = pathNode.right
-		
-		if pathNode != nil {
-			pathNodes = append(pathNodes, pathNode)
-			if pathNode.left != nil {
-				sumLeft, leftNodes := tree.checkLeft(pathNode.left, targetSum)
-				if sumLeft == targetSum {
-					return targetSum, leftNodes
-				}
-			}
-		}
-	}
-
-	if pathSum == targetSum {
-		return targetSum, pathNodes
-	}
-
-	return 0, []*TreeNode{}	
-}
-
-// FindSumPath returns a complete straight path of nodes as a slice whose sum
-// is equal to the passed sum. The first such path is found; there could be more.
+// FindSumPath returns the node sequence whose sum is equal to targetSum.
+// The path is a complete path: a straight line on the tree.
 func (tree *Tree) FindSumPath(targetSum int) ([]*TreeNode, bool) {
-	rightSum, rightNodes := tree.sumRightPath(tree.root.right, targetSum)
-	if rightSum == targetSum {
-		return rightNodes, true
+	nodes, sum := tree.findSumPathLeft(tree.root, targetSum)
+	fmt.Printf("Wanted %d got %d", targetSum, sum)
+	if sum == targetSum {
+		return nodes, true
 	}
-	if rightSum + tree.root.data == targetSum {
-		rightNodes = append(rightNodes, tree.root)
-		return rightNodes, true
-	}
-
-	leftSum, leftNodes := tree.sumLeftPath(tree.root.left, targetSum)
-	if leftSum == targetSum {
-		return leftNodes, true
-	}
-	if leftSum + tree.root.data == targetSum {
-		leftNodes = append(leftNodes, tree.root)
-		return leftNodes, true
-	}
-
-	return []*TreeNode{}, false
+	return nil, false
 }
 
-func (tree *Tree) sumRightPath(node *TreeNode, targetSum int) (sum int, path []*TreeNode) {
+
+func (tree *Tree) findSumPathLeft(node *TreeNode, targetSum int) ([]*TreeNode, int) {
 	if node == nil {
-		return 0, []*TreeNode{}
+		return nil, 0
 	}
 
-	// The terminus of a complete path, since left-paths terminate at right paths.
-	// If the sum is correct, return it. Otherwise discard.
-	// Case 1: some path along the right child hit the target sum.
-	leftSum, leftNodes := tree.sumLeftPath(node.left,targetSum)
-	if leftSum == targetSum {
-		return targetSum, leftNodes
-	}
-	// Case 2: adding this node to the sum hits the target.
-	if leftSum + node.data == targetSum {
+	leftSum := 0
+	var leftNodes []*TreeNode
+	for node != nil {
+		leftSum += node.data
 		leftNodes = append(leftNodes, node)
-		return targetSum, leftNodes
+
+		// Check node's right path for targetSum
+		rightNodes, rightSum := tree.findSumPathRight(node.right, targetSum)
+		if rightSum + node.data >= targetSum {
+			return append(rightNodes, node), targetSum
+		}
+
+		node = node.left
 	}
 
-	// Case 3: some right-child path contains the sum
-	rightSum, rightNodes := tree.sumRightPath(node.right, targetSum)
-	if rightSum == targetSum {
-		return targetSum, rightNodes
-	}
-	// Final case: simply add this node to sum and keep going
-	rightNodes = append(rightNodes, node)
-	return rightSum + node.data, rightNodes
-}
-
-// A node is the root of complete path if:
-// - it is a left child, and sumRight was called
-// - it is a right child, and sumLeft was called
-func (tree *Tree) sumLeftPath(node *TreeNode, targetSum int) (sum int, path []*TreeNode) {
-	if node == nil {
-		return 0, []*TreeNode{}
-	}
-
-	// The terminus of a complete path, since right-paths terminate at left paths.
-	// If the sum is correct, return it. Otherwise discard.
-	// Case 1: some path along the right child hit the target sum.
-	rightSum, rightNodes := tree.sumRightPath(node.right, targetSum)
-	if rightSum == targetSum {
-		return targetSum, rightNodes
-	}
-	// Case 2: adding this node to the sum hits the target.
-	if rightSum + node.data == targetSum {
-		rightNodes = append(rightNodes, node)
-		return targetSum, rightNodes
-	}
-
-	// Case 3: some left-child path contains the sum
-	leftSum, leftNodes := tree.sumLeftPath(node.left, targetSum)
+	fmt.Printf("Left sum:  %5d\n", leftSum)
 	if leftSum == targetSum {
-		return targetSum, leftNodes
+		return leftNodes, leftSum
 	}
-	// Final case: simply add this node to sum and keep going
-	leftNodes = append(leftNodes, node)
-	return leftSum + node.data, leftNodes
+
+
+	return nil, 0
 }
+
+func (tree *Tree) findSumPathRight(node *TreeNode, targetSum int) ([]*TreeNode, int) {
+	if node == nil {
+		return nil, 0
+	}
+
+    rightSum := 0
+	var rightNodes []*TreeNode
+	for node != nil {
+		rightSum += node.data
+		rightNodes = append(rightNodes, node)
+
+		// Check node's left path for targetSum
+		leftNodes, leftSum := tree.findSumPathLeft(node.left, targetSum)
+		if leftSum + node.data >= targetSum {
+			return append(leftNodes, node), leftSum
+		}
+
+		node = node.right
+	}
+
+	fmt.Printf("Right sum: %5d\n", rightSum)
+	if rightSum == targetSum {
+		return rightNodes, rightSum
+	}
+
+
+	return nil, 0
+}
+
+
 
 func max(x, y int) int {
 	if x > y {
@@ -333,31 +272,23 @@ func max(x, y int) int {
 
 func buildRandomTree(n int) (tree *Tree) {
 	tree = NewTree()
-	for i := 1; i < n; i++ {
+	for i := 0; i < n; i++ {
 		for !tree.Insert(rand.Int() % 1000) {}
 	}
 
 	return 
 }
 
+
+
 func main() {
-	tree := buildRandomTree(100)
+	tree := buildRandomTree(3)
 	tree.Print()
 	fmt.Println()
 	tree.PrintLevels()
 	maxSum := tree.MaxSum()
 	fmt.Printf("Max sum is: %d\n", maxSum)
 	nodes, ok := tree.FindSumPath(maxSum)
-	if ok {
-		for i := 0; i < len(nodes); i++ {
-			fmt.Printf("%d ", nodes[i].data)
-		}
-		fmt.Println()
-	} else {
-		fmt.Println("Failed!")
-	}
-
-	nodes, ok = tree.FindSumPath2(maxSum)
 	if ok {
 		for i := 0; i < len(nodes); i++ {
 			fmt.Printf("%d ", nodes[i].data)
