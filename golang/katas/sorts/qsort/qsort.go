@@ -76,8 +76,6 @@ func qsort(input []int, left, right int) {
 	}
 
 	pivotIndex := partition(input, left, right)
-	//qsort(input, left, pivotIndex-1)
-	//qsort(input, pivotIndex+1, right)
 
 	var wg sync.WaitGroup
 	wg.Add(2)
@@ -85,7 +83,7 @@ func qsort(input []int, left, right int) {
 		qsort(input, left, pivotIndex - 1)
 		wg.Done()
 	}()
-	go func(){
+	go func() {
 		qsort(input, pivotIndex + 1, right)
 		wg.Done()
 	}()
