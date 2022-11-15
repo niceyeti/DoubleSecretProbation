@@ -234,18 +234,27 @@ func TestQuickSort(t *testing.T) {
 			So(input[0], ShouldEqual, 123)
 		})
 
-		Convey("Given very long, randomly-generated lists with duplicates, results should match sort() builtin", func(){
-			s := make([]int, 19)
-			for i := 0; i < len(s); i++ {
-				s[i] = rand.Int() % 100
+		Convey("Given long, randomly-generated lists including duplicates, results should match sort() builtin", func(){
+			lengths := []int{
+				19,
+				37,
+				200,
+				1000,
 			}
-			ts := make([]int, len(s))
-			copy(ts, s)
 
-			sort.Sort(intSorter(s))
-			Qsort(ts)
-
-			So(ts, ShouldResemble, s)
+			for _, l := range lengths {
+				s := make([]int, l)
+				for i := 0; i < len(s); i++ {
+					s[i] = rand.Int() % (l / 2)
+				}
+				ts := make([]int, len(s))
+				copy(ts, s)
+	
+				sort.Sort(intSorter(s))
+				Qsort(ts)
+	
+				So(ts, ShouldResemble, s)
+			}
 		})
 
 		Convey("Given unsorted lists", func() {
