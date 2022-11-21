@@ -1,12 +1,15 @@
 package qsort
 
 import (
-	_ "fmt"
 	"sync"
+	"runtime"
 )
 
 var (
-	insertionSortThreshold int = 0
+	// The optimal insertionSortThreshold is largely a function of cpu
+	// cache-line size, per the size of the objects to be sorted.
+	insertionSortThreshold int = 128
+	nprocs = runtime.GOMAXPROCS(0)
 )
 
 // Runs insertion sort on the subarray of input defined from left to right, inclusive.
@@ -22,12 +25,12 @@ func insertionSort(input []int, left, right int) {
 	}
 }
 
-// Qsort is a concurrent implementation of quicksort using log(n) goroutines.
+// Qsort is an optimized concurrent implementation of quicksort using goroutines.
 func Qsort(input []int) {
 	if len(input) < 2 {
 		return
 	}
-	qsort(input, 0, len(input)-1)
+	qsort(input, 0, len(input)-1, 1)
 }
 
 // partition separates the input array into S1 and S2, such that S1 contains all
@@ -59,7 +62,7 @@ func partition(input []int, left, right int) int {
 	return i
 }
 
-func qsort(input []int, left, right int) {
+func qsort(input []int, left, right, callDepth int) {
 	if left >= right {
 		return
 	}
@@ -68,26 +71,39 @@ func qsort(input []int, left, right int) {
 	// small input spans (e.g. insertionSortThreshold of zero).
 	// This may be disabled if insertion sort is enabled, but is useful for
 	// deeply testing quicksort methods for correctness on cornercase inputs.
-	if insertionSortThreshold < 2 && left == right-1 {
+	if left == right-1 {
 		if input[left] > input[right] {
 			swap(input, left, right)
 		}
 		return
 	}
 
+	// Running insertionSort on small inputs utilizes cpu-cache and decreases call depth.
+	if len(input) <= insertionSortThreshold {
+		insertionSort(input, left, right)
+		return
+	}
+	
 	pivotIndex := partition(input, left, right)
-
-	var wg sync.WaitGroup
-	wg.Add(2)
-	go func() {
-		qsort(input, left, pivotIndex - 1)
-		wg.Done()
-	}()
-	go func() {
-		qsort(input, pivotIndex + 1, right)
-		wg.Done()
-	}()
-	wg.Wait()
+	
+	// The benefits of goroutines diminish after the call tree is wider than
+	// the number of cpus, since many goroutines will simply be queued.
+	if callDepth > nprocs {
+		qsort(input, left, pivotIndex - 1, callDepth+1)
+		qsort(input, pivotIndex + 1, right, callDepth+1)
+	} else {
+		var wg sync.WaitGroup
+		wg.Add(2)
+		go func() {
+			qsort(input, left, pivotIndex - 1, callDepth+1)
+			wg.Done()
+		}()
+		go func() {
+			qsort(input, pivotIndex + 1, right, callDepth+1)
+			wg.Done()
+		}()
+		wg.Wait()
+	}
 }
 
 func swap(input []int, a, b int) {
