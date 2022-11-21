@@ -5,10 +5,17 @@ import (
 	"runtime"
 )
 
+// These are optimization parameters with 'LGTM' values.
+// To optimize per an architecture, one would perform a
+// grid search over their values using the benchmark tests.
 var (
-	// The optimal insertionSortThreshold is largely a function of cpu
-	// cache-line size, per the size of the objects to be sorted.
+	// The optimal insertionSortThreshold is a function of cpu
+	// cache-line size (per the size of objects to be sorted).
 	insertionSortThreshold int = 128
+	// nprocs defines how many goroutines run in parallel on different input
+	// partitions. GOMAXPROCS is generally optimal, because the algorithm
+	// is simple: below a certain call-depth of recursive goroutines, quicksort
+	// is instead called serially. This sufficiently distributes work over cores.
 	nprocs = runtime.GOMAXPROCS(0)
 )
 
@@ -44,12 +51,10 @@ func partition(input []int, left, right int) int {
 	j := right - 1
 	pivot := input[right]
 	for i < j {
-		for input[i] < pivot {
-			i++
-		}
-		for input[j] >= pivot && i < j {
-			j--
-		}
+		
+		for input[i] < pivot { i++ }
+		
+		for input[j] >= pivot && i < j { j-- }
 
 		if i < j {
 			swap(input, i, j)
@@ -86,24 +91,28 @@ func qsort(input []int, left, right, callDepth int) {
 	
 	pivotIndex := partition(input, left, right)
 	
-	// The benefits of goroutines diminish after the call tree is wider than
-	// the number of cpus, since many goroutines will simply be queued.
+	// Call quicksort serially once a certain call depth is reached.
+	// The benefits of goroutines diminish once the call tree is wider than
+	// the number of cores, since many goroutines will be queued along with
+	// synchronization overhead. 
 	if callDepth > nprocs {
 		qsort(input, left, pivotIndex - 1, callDepth+1)
 		qsort(input, pivotIndex + 1, right, callDepth+1)
-	} else {
-		var wg sync.WaitGroup
-		wg.Add(2)
-		go func() {
-			qsort(input, left, pivotIndex - 1, callDepth+1)
-			wg.Done()
-		}()
-		go func() {
-			qsort(input, pivotIndex + 1, right, callDepth+1)
-			wg.Done()
-		}()
-		wg.Wait()
+		return
 	}
+
+	// Else, sort concurrently by recursing using goroutines.
+	var wg sync.WaitGroup
+	wg.Add(2)
+	go func() {
+		qsort(input, left, pivotIndex - 1, callDepth+1)
+		wg.Done()
+	}()
+	go func() {
+		qsort(input, pivotIndex + 1, right, callDepth+1)
+		wg.Done()
+	}()
+	wg.Wait()
 }
 
 func swap(input []int, a, b int) {

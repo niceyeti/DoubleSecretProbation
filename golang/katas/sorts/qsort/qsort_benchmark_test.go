@@ -8,13 +8,17 @@ import (
 	"sort"
 )
 
-var smallInput, largeInput []int
+var (
+	smallInput []int = makeRand(1 << 5)
+	largeInput []int = makeRand(1 << 16)
+)
 
 func init() {
 	runtime.GOMAXPROCS(runtime.NumCPU())
 	rand.Seed(time.Now().UnixNano())
 }
 
+// I am slow--don't call me within benchmark loops!
 func makeRand(n int) (s []int) {
 	s = make([]int, n)
 	for i := 0; i < n; i++ {
@@ -24,29 +28,39 @@ func makeRand(n int) (s []int) {
 }
 
 func BenchmarkQsortSmall(b *testing.B) {
+	s := make([]int, len(smallInput))
 	for n := 0; n < b.N; n++ {
 		b.StopTimer()
-		smallInput = makeRand(1 << 5)
+		copy(s, smallInput)
+		
 		b.StartTimer()
-		Qsort(smallInput)
+		Qsort(s)
+		_ = s[0]
 	}
 }
 
 func BenchmarkQsortLarge(b *testing.B) {
+	s := make([]int, len(largeInput))
 	for n := 0; n < b.N; n++ {
 		b.StopTimer()
-		largeInput = makeRand(1 << 16)
+		copy(s, largeInput)
+		
 		b.StartTimer()
-		Qsort(largeInput)
+		Qsort(s)
+		_ = s[0]
 	}
 }
 
 // For comparison, see how well we perform against the stdlib version.
-func BenchmarkStdLibQsortLarge(b *testing.B) {
+func BenchmarkSortLarge_StdLib(b *testing.B) {
+	s := make([]int, len(largeInput))
 	for n := 0; n < b.N; n++ {
 		b.StopTimer()
-		largeInput = makeRand(1 << 16)
+		copy(s, largeInput)
+		is := intSorter(s)
+		
 		b.StartTimer()
-		sort.Sort(intSorter(largeInput))
+		sort.Sort(is)
+		_ = is[0]
 	}
 }
